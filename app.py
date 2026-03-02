@@ -18,7 +18,9 @@ db = SQLAlchemy(app)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# DATABASE MODELS (DIMENSIONS + FACT)
+# =========================
+# DATABASE MODELS
+# =========================
 
 class DimUploader(db.Model):
     __tablename__ = 'dim_uploader'
@@ -46,7 +48,19 @@ class FactSignVideo(db.Model):
     video_id = db.Column(db.Integer)
     upload_timestamp = db.Column(db.DateTime)
 
-# HOME ROUTE (HTML FORM)
+
+# =========================
+# CREATE TABLES AUTOMATICALLY
+# =========================
+
+with app.app_context():
+    db.create_all()
+
+
+# =========================
+# ROUTES
+# =========================
+
 @app.route('/')
 def home():
     return render_template_string("""
@@ -68,7 +82,7 @@ def home():
     </form>
     """)
 
-# UPLOAD ENDPOINT
+
 @app.route('/upload', methods=['POST'])
 def upload():
 
@@ -84,7 +98,7 @@ def upload():
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
 
-    # Insert into DimUploader (simple version)
+    # Insert into DimUploader
     uploader = DimUploader(
         name=uploader_name,
         email=None,
@@ -105,7 +119,7 @@ def upload():
     db.session.add(video)
     db.session.commit()
 
-    # Insert into Fact Table
+    # Insert into FactSignVideo
     fact = FactSignVideo(
         uploader_id=uploader.uploader_id,
         video_id=video.video_id,
@@ -116,6 +130,10 @@ def upload():
 
     return jsonify({"message": "Video uploaded and stored in warehouse successfully"})
 
+
+# =========================
 # RUN APP
+# =========================
+
 if __name__ == '__main__':
     app.run(debug=True)
