@@ -18,10 +18,7 @@ db = SQLAlchemy(app)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# =========================
 # DATABASE MODELS
-# =========================
-
 class DimUploader(db.Model):
     __tablename__ = 'dim_uploader'
     uploader_id = db.Column(db.Integer, primary_key=True)
@@ -48,19 +45,11 @@ class FactSignVideo(db.Model):
     video_id = db.Column(db.Integer)
     upload_timestamp = db.Column(db.DateTime)
 
-
-# =========================
 # CREATE TABLES AUTOMATICALLY
-# =========================
-
 with app.app_context():
     db.create_all()
 
-
-# =========================
 # ROUTES
-# =========================
-
 @app.route('/')
 def home():
     return render_template_string("""
@@ -130,10 +119,6 @@ def upload():
 
     return jsonify({"message": "Video uploaded and stored in warehouse successfully"})
 
-
-# =========================
 # RUN APP
-# =========================
-
 if __name__ == '__main__':
     app.run(debug=True)
