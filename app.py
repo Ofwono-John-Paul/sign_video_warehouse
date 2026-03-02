@@ -1,95 +1,121 @@
-from flask import Flask, request, jsonify
-from config import Config
-from models import db
+from flask import Flask, request, jsonify, render_template_string
+from flask_sqlalchemy import SQLAlchemy
 import os
-import cv2
+from dotenv import load_dotenv
 from datetime import datetime
-from models import DimUploader, DimVideo, DimDate, FactSignVideo, DimCategory
 
 app = Flask(__name__)
-app.config.from_object(Config)
 
-db.init_app(app)
+load_dotenv()
 
-UPLOAD_FOLDER = 'data_lake/raw_videos'
+# DATABASE CONFIGURATION
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# UPLOAD FOLDER
+UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# DATABASE MODELS (DIMENSIONS + FACT)
 
+class DimUploader(db.Model):
+    __tablename__ = 'dim_uploader'
+    uploader_id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100))
+    email = db.Column(db.String(150))
+    organization = db.Column(db.String(150))
+    sector = db.Column(db.String(100))
+    region = db.Column(db.String(100))
+
+
+class DimVideo(db.Model):
+    __tablename__ = 'dim_video'
+    video_id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(150))
+    category = db.Column(db.String(100))
+    file_path = db.Column(db.String(200))
+    upload_date = db.Column(db.Date)
+
+
+class FactSignVideo(db.Model):
+    __tablename__ = 'fact_sign_video'
+    fact_id = db.Column(db.Integer, primary_key=True)
+    uploader_id = db.Column(db.Integer)
+    video_id = db.Column(db.Integer)
+    upload_timestamp = db.Column(db.DateTime)
+
+# HOME ROUTE (HTML FORM)
 @app.route('/')
 def home():
-    return "Flask connected to PostgreSQL successfully!"
+    return render_template_string("""
+    <h2>Upload Sign Language Video</h2>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <label>Title:</label><br>
+        <input type="text" name="title" required><br><br>
 
+        <label>Category:</label><br>
+        <input type="text" name="category" required><br><br>
 
+        <label>Uploader Name:</label><br>
+        <input type="text" name="uploader_name" required><br><br>
+
+        <label>Select Video:</label><br>
+        <input type="file" name="file" required><br><br>
+
+        <button type="submit">Upload</button>
+    </form>
+    """)
+
+# UPLOAD ENDPOINT
 @app.route('/upload', methods=['POST'])
-def upload_video():
-    video = request.files['video']
-    name = request.form['name']
-    email = request.form['email']
-    organization = request.form['organization']
-    sector = request.form['sector']
-    region = request.form['region']
-    language = request.form['language']
-    gloss = request.form['gloss']
-    sentence_type = request.form['sentence_type']
-    category_name = request.form['category']
+def upload():
 
-    filepath = os.path.join(UPLOAD_FOLDER, video.filename)
-    video.save(filepath)
+    title = request.form['title']
+    category = request.form['category']
+    uploader_name = request.form['uploader_name']
+    file = request.files['file']
 
-    cap = cv2.VideoCapture(filepath)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    duration = frame_count / fps if fps > 0 else 0
-    cap.release()
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
 
-    file_size = os.path.getsize(filepath) / (1024 * 1024)
+    # Save file
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
 
+    # Insert into DimUploader (simple version)
     uploader = DimUploader(
-        name=name,
-        email=email,
-        organization=organization,
-        sector=sector,
-        region=region
+        name=uploader_name,
+        email=None,
+        organization=None,
+        sector=None,
+        region=None
     )
     db.session.add(uploader)
     db.session.commit()
 
-    category = DimCategory(category_name=category_name)
-    db.session.add(category)
-    db.session.commit()
-
-    today = datetime.now()
-    date_dim = DimDate(
-        day=today.day,
-        month=today.month,
-        year=today.year
-    )
-    db.session.add(date_dim)
-    db.session.commit()
-
-    video_dim = DimVideo(
+    # Insert into DimVideo
+    video = DimVideo(
+        title=title,
+        category=category,
         file_path=filepath,
-        language=language,
-        gloss_label=gloss,
-        sentence_type=sentence_type
+        upload_date=datetime.today().date()
     )
-    db.session.add(video_dim)
+    db.session.add(video)
     db.session.commit()
 
+    # Insert into Fact Table
     fact = FactSignVideo(
-        video_id=video_dim.video_id,
         uploader_id=uploader.uploader_id,
-        date_id=date_dim.date_id,
-        category_id=category.category_id,
-        duration=duration,
-        file_size=file_size
+        video_id=video.video_id,
+        upload_timestamp=datetime.now()
     )
-
     db.session.add(fact)
     db.session.commit()
 
-    return jsonify({"message": "Video uploaded successfully!"})
+    return jsonify({"message": "Video uploaded and stored in warehouse successfully"})
 
-
+# RUN APP
 if __name__ == '__main__':
     app.run(debug=True)
