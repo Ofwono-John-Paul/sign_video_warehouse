@@ -131,7 +131,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final processed = widget.video['model_processed'] == true;
+    final status = widget.video['verified_status']?.toString() ?? 'pending';
+    final isApproved = status == 'approved';
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.video['gloss_label'] ?? 'Video Detail'),
@@ -148,19 +149,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                 decoration: BoxDecoration(
-                  color: processed ? Colors.green.shade50 : Colors.orange.shade50,
-                  border: Border.all(color: processed ? Colors.green : Colors.orange),
+                  color: isApproved ? Colors.green.shade50 : Colors.orange.shade50,
+                  border: Border.all(color: isApproved ? Colors.green : Colors.orange),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
-                    Icon(processed ? Icons.check_circle : Icons.pending,
-                        color: processed ? Colors.green : Colors.orange),
+                    Icon(isApproved ? Icons.check_circle : Icons.pending,
+                        color: isApproved ? Colors.green : Colors.orange),
                     const SizedBox(width: 10),
                     Text(
-                      processed ? 'Model Processed' : 'Pending Processing',
+                      status.toUpperCase(),
                       style: TextStyle(
-                        color: processed ? Colors.green.shade800 : Colors.orange.shade800,
+                        color: isApproved ? Colors.green.shade800 : Colors.orange.shade800,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -182,11 +183,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               _row(context, Icons.language,       'Language',      widget.video['language']?.toString()),
               _row(context, Icons.type_specimen,  'Sentence Type', widget.video['sentence_type']?.toString()),
               _row(context, Icons.category,       'Category',      widget.video['category']?.toString()),
-              _row(context, Icons.person,         'Uploader',      widget.video['uploader_name']?.toString()),
-              _row(context, Icons.business,       'Organization',  widget.video['organization']?.toString()),
-              _row(context, Icons.domain,         'Sector',        widget.video['sector']?.toString()),
+              _row(context, Icons.person,         'Uploader',      widget.video['uploader']?.toString()),
+              _row(context, Icons.business,       'School',        widget.video['school_name']?.toString()),
               _row(context, Icons.location_on,    'Region',        widget.video['region']?.toString()),
-              _row(context, Icons.calendar_today, 'Date',          widget.video['date']?.toString()),
+              _row(context, Icons.location_city,  'District',      widget.video['district']?.toString()),
+              _row(context, Icons.calendar_today, 'Upload Date',   widget.video['upload_date']?.toString()),
+              _row(context, Icons.timer,          'Duration',      widget.video['duration'] != null ? '${widget.video['duration']} sec' : null),
               _row(context, Icons.storage, 'File Size',
                   widget.video['file_size_kb'] != null
                       ? '${(widget.video['file_size_kb'] as num).toStringAsFixed(1)} KB'
@@ -194,7 +196,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               const Divider(),
               const SizedBox(height: 8),
               Text(
-                'Video ID: ${widget.video['video_id']}  •  Fact ID: ${widget.video['fact_id']}',
+                'Video ID: ${widget.video['video_id']}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),

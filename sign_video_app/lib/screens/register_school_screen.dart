@@ -28,7 +28,7 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
   bool _obscure      = true;
 
   static const _regions     = ['Central', 'Western', 'Eastern', 'Northern'];
-  static const _schoolTypes = ['Primary', 'Secondary', 'Tertiary', 'Special Needs'];
+  static const _schoolTypes = ['Primary', 'Secondary', 'Vocational'];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -38,7 +38,7 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
     setState(() => _loading = true);
     try {
       final res = await ApiService.registerSchool({
-        'name': _name.text.trim(),
+        'school_name': _name.text.trim(),
         'region': _region,
         'district': _district.text.trim(),
         'contact_email': _email.text.trim(),
@@ -61,7 +61,8 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       } else {
-        _err(res['body']['error'] ?? 'Registration failed');
+        final errorMsg = res['body']['detail'] ?? res['body']['error'] ?? res['body'].toString();
+        _err(errorMsg);
       }
     } catch (e) {
       _err('Cannot reach server');
