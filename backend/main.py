@@ -30,7 +30,7 @@ load_dotenv()
 # ── CONFIGURATION ──────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv(
     'DATABASE_URL',
-    'postgresql://postgres:Kisirinya%2A256@localhost:5432/sign_video_dw'
+    'postgresql://postgres:John%40004.com@localhost:5432/sign_video_dw'
 )
 JWT_SECRET  = os.getenv('JWT_SECRET_KEY', 'usl-secret-2026')
 JWT_ALGO    = 'HS256'
