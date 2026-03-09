@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   // ── Change this for a real device (use your PC's local IP, e.g. 192.168.x.x)
-  static const String baseUrl = 'http://192.168.43.80:5000';
+  static const String baseUrl = 'http://10.10.134.62:5000';
 
   // ── Token helpers ─────────────────────────────────────────────────────────
   static Future<String?> getToken() async {

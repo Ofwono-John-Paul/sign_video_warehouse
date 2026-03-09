@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../services/api_service.dart';
 
 class UploadScreen extends StatefulWidget {
@@ -31,14 +33,62 @@ class _UploadScreenState extends State<UploadScreen> {
   static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video, allowMultiple: false,
-    );
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        _filePath = result.files.single.path;
-        _fileName = result.files.single.name;
-      });
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        allowMultiple: false,
+      );
+      
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        
+        // For Android/iOS, we need to handle the file differently
+        if (file.path != null && file.path!.isNotEmpty) {
+          // Direct path is available (older Android versions)
+          setState(() {
+            _filePath = file.path;
+            _fileName = file.name;
+          });
+          _showSuccess('Selected: ${file.name}');
+        } else if (file.bytes != null) {
+          // Path not available, need to save bytes to temp file (newer Android)
+          try {
+            final tempDir = await getTemporaryDirectory();
+            final tempFile = File('${tempDir.path}/${file.name}');
+            await tempFile.writeAsBytes(file.bytes!);
+            
+            setState(() {
+              _filePath = tempFile.path;
+              _fileName = file.name;
+            });
+            _showSuccess('Selected: ${file.name}');
+          } catch (e) {
+            _showError('Failed to save file: $e');
+          }
+        } else {
+          _showError('Unable to access the selected file. Please try again.');
+        }
+      } else {
+        // User cancelled
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No file selected'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      _showError('Error: $e\n\nPlease check app permissions in Settings:\nSettings → Apps → sign_video_app → Permissions → Allow Photos and videos');
+    }
+  }
+
+  void _showSuccess(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.green, duration: const Duration(seconds: 2)),
+      );
     }
   }
 
@@ -66,10 +116,11 @@ class _UploadScreenState extends State<UploadScreen> {
           const SnackBar(content: Text('Video uploaded successfully!'), backgroundColor: Colors.green));
         Navigator.of(context).pop();
       } else {
-        _showError(res['body']['error'] ?? 'Upload failed');
+        final errorMsg = res['body']['detail'] ?? res['body']['error'] ?? 'Upload failed';
+        _showError(errorMsg);
       }
     } catch (e) {
-      _showError('Cannot reach server. Is Flask running?');
+      _showError('Cannot reach server. Check your connection.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -94,12 +145,34 @@ class _UploadScreenState extends State<UploadScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ── Instructions ───────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: cs.primary.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: cs.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Tap the box below to select a video from your device',
+                          style: TextStyle(fontSize: 12, color: cs.onSurface.withOpacity(0.7)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 // ── File picker ────────────────────────────────────────────
                 GestureDetector(
                   onTap: _pickFile,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    height: 100,
+                    height: 120,
                     decoration: BoxDecoration(
                       border: Border.all(
                           color: _filePath != null ? Colors.green : cs.primary, width: 2),
@@ -107,15 +180,34 @@ class _UploadScreenState extends State<UploadScreen> {
                       color: (_filePath != null ? Colors.green : cs.primary).withOpacity(0.08),
                     ),
                     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Icon(_filePath != null ? Icons.check_circle : Icons.video_call,
-                          size: 36,
+                      Icon(_filePath != null ? Icons.check_circle : Icons.video_library,
+                          size: 40,
                           color: _filePath != null ? Colors.green : cs.primary),
-                      const SizedBox(height: 6),
-                      Text(_fileName ?? 'Tap to select a video',
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          _fileName ?? 'Tap to select a video',
                           style: TextStyle(
                               color: _filePath != null ? Colors.green : cs.primary,
-                              fontWeight: FontWeight.w500),
-                          textAlign: TextAlign.center),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_filePath != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Ready to upload',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade700,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ]),
                   ),
                 ),

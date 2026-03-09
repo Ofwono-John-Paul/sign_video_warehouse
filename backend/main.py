@@ -159,7 +159,7 @@ class DimRegion(Base):
 
 class DimDate(Base):
     __tablename__ = 'dim_date'
-    date_key = Column(Integer, primary_key=True)
+    date_id  = Column(Integer, primary_key=True)
     day      = Column(Integer)
     month    = Column(Integer)
     year     = Column(Integer)
@@ -169,7 +169,7 @@ class DimDate(Base):
 
 class DimCategory(Base):
     __tablename__ = 'dim_category'
-    category_key  = Column(Integer, primary_key=True)
+    category_id   = Column(Integer, primary_key=True)
     category_name = Column(String(100))
 
 
@@ -179,8 +179,8 @@ class FactVideoUpload(Base):
     video_id        = Column(Integer)
     school_key      = Column(Integer, nullable=True)
     region_key      = Column(Integer, nullable=True)
-    date_key        = Column(Integer)
-    category_key    = Column(Integer, nullable=True)
+    date_id         = Column(Integer)
+    category_id     = Column(Integer, nullable=True)
     total_uploads   = Column(Integer, default=1)
     total_duration  = Column(Float,   default=0)
     file_size_kb    = Column(Float,   default=0)
@@ -275,7 +275,7 @@ def _ensure_date_key(dt: datetime, db: Session) -> int:
         e = DimDate(day=dt.day, month=dt.month, year=dt.year,
                     quarter=(dt.month-1)//3+1, week=dt.isocalendar()[1])
         db.add(e); db.flush()
-    return e.date_key
+    return e.date_id
 
 
 def _ensure_category_key(name: str, db: Session) -> int:
@@ -284,7 +284,7 @@ def _ensure_category_key(name: str, db: Session) -> int:
     if not e:
         e = DimCategory(category_name=n)
         db.add(e); db.flush()
-    return e.category_key
+    return e.category_id
 
 
 def _ensure_school_key(school_id: Optional[int], db: Session) -> Optional[int]:
@@ -420,46 +420,53 @@ async def _handle_upload(
     user: User,
     db:  Session,
 ):
-    ts       = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    savepath = os.path.join(UPLOAD_FOLDER, f'{ts}_{file.filename}')
-    with open(savepath, 'wb') as out:
-        shutil.copyfileobj(file.file, out)
-    size_kb = os.path.getsize(savepath) / 1024
+    try:
+        ts       = datetime.now().strftime('%Y%m%d%H%M%S%f')
+        savepath = os.path.join(UPLOAD_FOLDER, f'{ts}_{file.filename}')
+        with open(savepath, 'wb') as out:
+            shutil.copyfileobj(file.file, out)
+        size_kb = os.path.getsize(savepath) / 1024
 
-    # If region/district not provided, fall back to school's values
-    if not region and user.school_id:
-        s = db.get(School, user.school_id)
-        region = (s.region   or '') if s else ''
-    if not district and user.school_id:
-        s = db.get(School, user.school_id)
-        district = (s.district or '') if s else ''
+        # If region/district not provided, fall back to school's values
+        if not region and user.school_id:
+            s = db.get(School, user.school_id)
+            region = (s.region   or '') if s else ''
+        if not district and user.school_id:
+            s = db.get(School, user.school_id)
+            district = (s.district or '') if s else ''
 
-    video = Video(
-        school_id=user.school_id, uploader_id=user.user_id,
-        file_path=savepath,
-        gloss_label=gloss_label,
-        language_variant=language,
-        sign_category=sign_category or 'Other',
-        sentence_type=sentence_type,
-        region=region, district=district,
-        duration=duration, file_size_kb=size_kb,
-        verified_status='pending',
-    )
-    db.add(video); db.flush()
+        video = Video(
+            school_id=user.school_id, uploader_id=user.user_id,
+            file_path=savepath,
+            gloss_label=gloss_label,
+            language_variant=language,
+            sign_category=sign_category or 'Other',
+            sentence_type=sentence_type,
+            region=region, district=district,
+            duration=duration, file_size_kb=size_kb,
+            verified_status='pending',
+        )
+        db.add(video); db.flush()
 
-    now = datetime.utcnow()
-    fact = FactVideoUpload(
-        video_id=video.id,
-        school_key=_ensure_school_key(user.school_id, db),
-        region_key=_ensure_region_key(region, db),
-        date_key=_ensure_date_key(now, db),
-        category_key=_ensure_category_key(sign_category, db),
-        total_uploads=1, total_duration=duration,
-        file_size_kb=size_kb, verified_status='pending',
-    )
-    db.add(fact); db.commit()
-    return {'message': 'Video uploaded successfully',
-            'video_id': video.id, 'verified_status': 'pending'}
+        now = datetime.utcnow()
+        fact = FactVideoUpload(
+            video_id=video.id,
+            school_key=_ensure_school_key(user.school_id, db),
+            region_key=_ensure_region_key(region, db),
+            date_id=_ensure_date_key(now, db),
+            category_id=_ensure_category_key(sign_category, db),
+            total_uploads=1, total_duration=duration,
+            file_size_kb=size_kb, verified_status='pending',
+        )
+        db.add(fact); db.commit()
+        return {'message': 'Video uploaded successfully',
+                'video_id': video.id, 'verified_status': 'pending'}
+    except Exception as e:
+        db.rollback()
+        print(f"ERROR in _handle_upload: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @app.post('/api/upload', status_code=201)

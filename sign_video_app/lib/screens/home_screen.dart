@@ -188,10 +188,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         subtitle: Text(
                           '${v['language'] ?? ''} • ${v['category'] ?? ''}\n'
-                          'By: ${v['uploader_name'] ?? ''} • ${v['date'] ?? ''}',
+                          'By: ${v['uploader'] ?? ''} • ${v['upload_date'] ?? ''}',
                         ),
                         isThreeLine: true,
-                        trailing: v['model_processed'] == true
+                        trailing: v['verified_status'] == 'approved'
                             ? const Icon(Icons.check_circle, color: Colors.green)
                             : const Icon(Icons.pending, color: Colors.orange),
                         onTap: () => Navigator.of(context).push(
