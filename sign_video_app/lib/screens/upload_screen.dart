@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'dart:typed_data';
 import '../services/api_service.dart';
 
 class UploadScreen extends StatefulWidget {
@@ -14,16 +13,12 @@ class _UploadScreenState extends State<UploadScreen> {
   final _glossCtrl = TextEditingController();
   final _districtCtrl = TextEditingController();
 
-  String? _filePath;
-  Uint8List? _fileBytes;
-  String? _fileName;
+  PlatformFile? _selectedFile;
   bool _loading = false;
-
-  bool get _fileSelected => _filePath != null || _fileBytes != null;
 
   String _language = 'USL';
   String _sentenceType = 'Statement';
-  String _category = 'Greeting';
+  String _category = 'Education';
   String _region = 'Central';
 
   static const _languages = ['USL', 'English', 'Luganda', 'Swahili', 'Arabic'];
@@ -35,12 +30,12 @@ class _UploadScreenState extends State<UploadScreen> {
     'Other',
   ];
   static const _categories = [
+    'Education',
+    'Health',
     'Greeting',
     'Numbers',
     'Colors',
     'Family',
-    'Education',
-    'Health',
     'Community',
     'Animals',
     'Food',
@@ -50,67 +45,18 @@ class _UploadScreenState extends State<UploadScreen> {
   static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
 
   Future<void> _pickFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.video,
-        allowMultiple: false,
-        withData: true,
-      );
-
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-
-        // Use bytes for web; path when available for mobile/desktop.
-        if (file.path != null && file.path!.isNotEmpty) {
-          setState(() {
-            _filePath = file.path;
-            _fileBytes = file.bytes;
-            _fileName = file.name;
-          });
-          _showSuccess('Selected: ${file.name}');
-        } else if (file.bytes != null) {
-          setState(() {
-            _filePath = null;
-            _fileBytes = file.bytes;
-            _fileName = file.name;
-          });
-          _showSuccess('Selected: ${file.name}');
-        } else {
-          _showError('Unable to access the selected file. Please try again.');
-        }
-      } else {
-        // User cancelled
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No file selected'),
-              duration: Duration(seconds: 1),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      _showError(
-        'Error: $e\n\nPlease check app permissions in Settings:\nSettings → Apps → sign_video_app → Permissions → Allow Photos and videos',
-      );
-    }
-  }
-
-  void _showSuccess(String msg) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      withData: true, // always load bytes — required for web
+    );
+    if (result != null) {
+      setState(() => _selectedFile = result.files.first);
     }
   }
 
   Future<void> _upload() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_filePath == null && _fileBytes == null) {
+    if (_selectedFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select a video file'),
@@ -119,12 +65,21 @@ class _UploadScreenState extends State<UploadScreen> {
       );
       return;
     }
+    if (_selectedFile!.bytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not read file bytes. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final res = await ApiService.uploadVideo(
-        filePath: _filePath,
-        fileBytes: _fileBytes,
-        fileName: _fileName,
+        fileBytes: _selectedFile!.bytes,
+        fileName: _selectedFile!.name,
         glossLabel: _glossCtrl.text.trim(),
         language: _language,
         sentenceType: _sentenceType,
@@ -140,11 +95,12 @@ class _UploadScreenState extends State<UploadScreen> {
             backgroundColor: Colors.green,
           ),
         );
+        _resetForm();
         Navigator.of(context).pop();
       } else {
         final errorMsg =
             res['body']['detail'] ?? res['body']['error'] ?? 'Upload failed';
-        _showError(errorMsg);
+        _showError(errorMsg.toString());
       }
     } catch (e) {
       _showError('Cannot reach server. Check your connection.');
@@ -153,9 +109,21 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  void _showError(String msg) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  void _resetForm() {
+    _glossCtrl.clear();
+    _districtCtrl.clear();
+    setState(() {
+      _selectedFile = null;
+      _category = 'Education';
+      _language = 'USL';
+      _sentenceType = 'Statement';
+      _region = 'Central';
+    });
+  }
+
+  void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -172,162 +140,187 @@ class _UploadScreenState extends State<UploadScreen> {
           child: Form(
             key: _formKey,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Instructions ───────────────────────────────────────────
+                const Text(
+                  'Upload Sign Language Video',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Contribute to the sign language dataset',
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Card wrapper ───────────────────────────────────────────
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  constraints: const BoxConstraints(maxWidth: 620),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: cs.primaryContainer.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: cs.primary.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: cs.primary, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Tap the box below to select a video from your device',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: cs.onSurface.withOpacity(0.7),
-                          ),
-                        ),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                // ── File picker ────────────────────────────────────────────
-                GestureDetector(
-                  onTap: _pickFile,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    height: 120,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: _fileSelected ? Colors.green : cs.primary,
-                        width: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ── Gloss label ──────────────────────────────────────
+                      TextFormField(
+                        controller: _glossCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Gloss *',
+                          hintText: 'The sign word or phrase (e.g. THANK YOU)',
+                          prefixIcon: const Icon(Icons.sign_language),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        validator: (v) => v!.trim().isEmpty ? 'Required' : null,
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                      color: (_fileSelected ? Colors.green : cs.primary)
-                          .withOpacity(0.08),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _fileSelected
-                              ? Icons.check_circle
-                              : Icons.video_library,
-                          size: 40,
-                          color: _fileSelected ? Colors.green : cs.primary,
-                        ),
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            _fileName ?? 'Tap to select a video',
-                            style: TextStyle(
-                              color: _fileSelected ? Colors.green : cs.primary,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 18),
+
+                      // ── Dropdowns ────────────────────────────────────────
+                      _dropdown('Sign Category *', _category, _categories,
+                          Icons.category,
+                          (v) => setState(() => _category = v!)),
+                      const SizedBox(height: 14),
+                      _dropdown('Language / Variant', _language, _languages,
+                          Icons.language,
+                          (v) => setState(() => _language = v!)),
+                      const SizedBox(height: 14),
+                      _dropdown('Sentence Type', _sentenceType, _sentenceTypes,
+                          Icons.type_specimen,
+                          (v) => setState(() => _sentenceType = v!)),
+                      const SizedBox(height: 14),
+                      _dropdown('Region', _region, _regions, Icons.map_outlined,
+                          (v) => setState(() => _region = v!)),
+                      const SizedBox(height: 14),
+
+                      // ── District ─────────────────────────────────────────
+                      TextFormField(
+                        controller: _districtCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'District',
+                          prefixIcon: const Icon(Icons.location_city),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        if (_fileSelected) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Ready to upload',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.green.shade700,
-                              fontStyle: FontStyle.italic,
+                      ),
+                      const SizedBox(height: 22),
+
+                      // ── File picker box ──────────────────────────────────
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _selectedFile != null
+                                ? Colors.green
+                                : Colors.grey[300]!,
+                            width: _selectedFile != null ? 2 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          color: _selectedFile != null
+                              ? Colors.green.withOpacity(0.05)
+                              : null,
+                        ),
+                        child: _selectedFile == null
+                            ? Column(
+                                children: [
+                                  Icon(Icons.video_file,
+                                      size: 48, color: Colors.grey[400]),
+                                  const SizedBox(height: 10),
+                                  Text('No video selected',
+                                      style:
+                                          TextStyle(color: Colors.grey[600])),
+                                  const SizedBox(height: 14),
+                                  ElevatedButton.icon(
+                                    onPressed: _pickFile,
+                                    icon: const Icon(Icons.cloud_upload),
+                                    label: const Text('Select Video File'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: cs.primary,
+                                      foregroundColor: cs.onPrimary,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Column(
+                                children: [
+                                  Icon(Icons.check_circle,
+                                      size: 48, color: Colors.green[500]),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    _selectedFile!.name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${(_selectedFile!.size / 1024 / 1024).toStringAsFixed(2)} MB',
+                                    style: TextStyle(
+                                        color: Colors.grey[600], fontSize: 12),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  TextButton.icon(
+                                    onPressed: _pickFile,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Change File'),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 28),
+
+                      // ── Upload button ────────────────────────────────────
+                      SizedBox(
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: _loading ? null : _upload,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // ── Gloss label ────────────────────────────────────────────
-                TextFormField(
-                  controller: _glossCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Gloss Label *',
-                    prefixIcon: Icon(Icons.label_outline),
-                    helperText:
-                        'The sign word or phrase (e.g. "HELLO", "THANK YOU")',
-                  ),
-                  validator: (v) => v!.isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 14),
-                // ── Dropdowns ─────────────────────────────────────────────
-                _dropdown(
-                  'Sign Category *',
-                  _category,
-                  _categories,
-                  Icons.category_outlined,
-                  (v) => setState(() => _category = v!),
-                ),
-                const SizedBox(height: 14),
-                _dropdown(
-                  'Language / Variant',
-                  _language,
-                  _languages,
-                  Icons.language,
-                  (v) => setState(() => _language = v!),
-                ),
-                const SizedBox(height: 14),
-                _dropdown(
-                  'Sentence Type',
-                  _sentenceType,
-                  _sentenceTypes,
-                  Icons.type_specimen,
-                  (v) => setState(() => _sentenceType = v!),
-                ),
-                const SizedBox(height: 14),
-                _dropdown(
-                  'Region',
-                  _region,
-                  _regions,
-                  Icons.map_outlined,
-                  (v) => setState(() => _region = v!),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _districtCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'District',
-                    prefixIcon: Icon(Icons.location_city),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: _loading ? null : _upload,
-                  icon: _loading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.upload),
-                  label: Text(_loading ? 'Uploading…' : 'Upload Sign Video'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: cs.primary,
-                    foregroundColor: cs.onPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                          child: _loading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.cloud_upload),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      'Upload Video',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -347,7 +340,11 @@ class _UploadScreenState extends State<UploadScreen> {
   ) {
     return DropdownButtonFormField<String>(
       value: value,
-      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      ),
       items: items
           .map((e) => DropdownMenuItem(value: e, child: Text(e)))
           .toList(),
