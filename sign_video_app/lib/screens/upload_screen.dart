@@ -230,9 +230,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           child: Text(
                             _fileName ?? 'Tap to select a video',
                             style: TextStyle(
-                              color: _fileSelected
-                                  ? Colors.green
-                                  : cs.primary,
+                              color: _fileSelected ? Colors.green : cs.primary,
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
                             ),
