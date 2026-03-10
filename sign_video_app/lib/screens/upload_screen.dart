@@ -121,9 +121,9 @@ class _UploadScreenState extends State<UploadScreen> {
     });
   }
 
-  void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.red),
-      );
+  void _showError(String msg) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
 
   @override
   Widget build(BuildContext context) {
@@ -187,20 +187,37 @@ class _UploadScreenState extends State<UploadScreen> {
                       const SizedBox(height: 18),
 
                       // ── Dropdowns ────────────────────────────────────────
-                      _dropdown('Sign Category *', _category, _categories,
-                          Icons.category,
-                          (v) => setState(() => _category = v!)),
+                      _dropdown(
+                        'Sign Category *',
+                        _category,
+                        _categories,
+                        Icons.category,
+                        (v) => setState(() => _category = v!),
+                      ),
                       const SizedBox(height: 14),
-                      _dropdown('Language / Variant', _language, _languages,
-                          Icons.language,
-                          (v) => setState(() => _language = v!)),
+                      _dropdown(
+                        'Language / Variant',
+                        _language,
+                        _languages,
+                        Icons.language,
+                        (v) => setState(() => _language = v!),
+                      ),
                       const SizedBox(height: 14),
-                      _dropdown('Sentence Type', _sentenceType, _sentenceTypes,
-                          Icons.type_specimen,
-                          (v) => setState(() => _sentenceType = v!)),
+                      _dropdown(
+                        'Sentence Type',
+                        _sentenceType,
+                        _sentenceTypes,
+                        Icons.type_specimen,
+                        (v) => setState(() => _sentenceType = v!),
+                      ),
                       const SizedBox(height: 14),
-                      _dropdown('Region', _region, _regions, Icons.map_outlined,
-                          (v) => setState(() => _region = v!)),
+                      _dropdown(
+                        'Region',
+                        _region,
+                        _regions,
+                        Icons.map_outlined,
+                        (v) => setState(() => _region = v!),
+                      ),
                       const SizedBox(height: 14),
 
                       // ── District ─────────────────────────────────────────
@@ -235,12 +252,16 @@ class _UploadScreenState extends State<UploadScreen> {
                         child: _selectedFile == null
                             ? Column(
                                 children: [
-                                  Icon(Icons.video_file,
-                                      size: 48, color: Colors.grey[400]),
+                                  Icon(
+                                    Icons.video_file,
+                                    size: 48,
+                                    color: Colors.grey[400],
+                                  ),
                                   const SizedBox(height: 10),
-                                  Text('No video selected',
-                                      style:
-                                          TextStyle(color: Colors.grey[600])),
+                                  Text(
+                                    'No video selected',
+                                    style: TextStyle(color: Colors.grey[600]),
+                                  ),
                                   const SizedBox(height: 14),
                                   ElevatedButton.icon(
                                     onPressed: _pickFile,
@@ -255,13 +276,17 @@ class _UploadScreenState extends State<UploadScreen> {
                               )
                             : Column(
                                 children: [
-                                  Icon(Icons.check_circle,
-                                      size: 48, color: Colors.green[500]),
+                                  Icon(
+                                    Icons.check_circle,
+                                    size: 48,
+                                    color: Colors.green[500],
+                                  ),
                                   const SizedBox(height: 10),
                                   Text(
                                     _selectedFile!.name,
                                     style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                     textAlign: TextAlign.center,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
@@ -270,7 +295,9 @@ class _UploadScreenState extends State<UploadScreen> {
                                   Text(
                                     '${(_selectedFile!.size / 1024 / 1024).toStringAsFixed(2)} MB',
                                     style: TextStyle(
-                                        color: Colors.grey[600], fontSize: 12),
+                                      color: Colors.grey[600],
+                                      fontSize: 12,
+                                    ),
                                   ),
                                   const SizedBox(height: 14),
                                   TextButton.icon(
