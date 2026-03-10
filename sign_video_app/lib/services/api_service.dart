@@ -1,10 +1,21 @@
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // ── Change this for a real device (use your PC's local IP, e.g. 192.168.x.x)
-  static const String baseUrl = 'http://10.10.134.62:5000';
+  // Web should use localhost; mobile can use your LAN IP via --dart-define.
+  static const String _configuredBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: '',
+  );
+
+  static String get baseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (kIsWeb) return 'http://localhost:8000';
+    return 'http://10.10.134.62:8000';
+  }
 
   // ── Token helpers ─────────────────────────────────────────────────────────
   static Future<String?> getToken() async {
@@ -39,7 +50,11 @@ class ApiService {
     final res = await http.post(
       Uri.parse('$baseUrl/api/register'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'email': email, 'password': password}),
+      body: jsonEncode({
+        'username': username,
+        'email': email,
+        'password': password,
+      }),
     );
     return {'statusCode': res.statusCode, 'body': jsonDecode(res.body)};
   }
@@ -67,11 +82,13 @@ class ApiService {
     String category = '',
   }) async {
     final headers = await _authHeaders();
-    final uri = Uri.parse('$baseUrl/api/videos').replace(queryParameters: {
-      if (search.isNotEmpty) 'search': search,
-      if (language.isNotEmpty) 'language': language,
-      if (category.isNotEmpty) 'category': category,
-    });
+    final uri = Uri.parse('$baseUrl/api/videos').replace(
+      queryParameters: {
+        if (search.isNotEmpty) 'search': search,
+        if (language.isNotEmpty) 'language': language,
+        if (category.isNotEmpty) 'category': category,
+      },
+    );
     final res = await http.get(uri, headers: headers);
     return {'statusCode': res.statusCode, 'body': jsonDecode(res.body)};
   }
@@ -95,7 +112,9 @@ class ApiService {
 
   /// Upload a video file with metadata. [filePath] is the local file path.
   static Future<Map<String, dynamic>> uploadVideo({
-    required String filePath,
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
     required String glossLabel,
     required String language,
     required String sentenceType,
@@ -113,16 +132,33 @@ class ApiService {
     if (token != null) {
       request.headers['Authorization'] = 'Bearer $token';
     }
-    request.fields['gloss_label']   = glossLabel;
-    request.fields['language']      = language;
+    request.fields['gloss_label'] = glossLabel;
+    request.fields['language'] = language;
     request.fields['sentence_type'] = sentenceType;
-    request.fields['category']      = category;
-    request.fields['organization']  = organization;
-    request.fields['sector']        = sector;
-    request.fields['region']        = region;
-    request.fields['district']      = district;
+    request.fields['category'] = category;
+    request.fields['organization'] = organization;
+    request.fields['sector'] = sector;
+    request.fields['region'] = region;
+    request.fields['district'] = district;
 
-    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    if (fileBytes != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: (fileName != null && fileName.isNotEmpty)
+              ? fileName
+              : 'upload.webm',
+        ),
+      );
+    } else if (filePath != null && filePath.isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    } else {
+      return {
+        'statusCode': 400,
+        'body': {'error': 'No file selected'},
+      };
+    }
 
     final streamed = await request.send().timeout(const Duration(minutes: 5));
     final res = await http.Response.fromStream(streamed);
@@ -136,69 +172,120 @@ class ApiService {
   }
 
   // ── School Registration ───────────────────────────────────────────────────
-  static Future<Map<String, dynamic>> registerSchool(Map<String, dynamic> data) async {
+  static Future<Map<String, dynamic>> registerSchool(
+    Map<String, dynamic> data,
+  ) async {
     final res = await http.post(
       Uri.parse('$baseUrl/api/register-school'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(data),
     );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {'error': res.body}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {'error': res.body};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   // ── School Analytics ──────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> getSchoolAnalytics(int schoolId) async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/schools/$schoolId/analytics'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/schools/$schoolId/analytics'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   static Future<Map<String, dynamic>> getNearbyHealth(int schoolId) async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/schools/$schoolId/health-nearby'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/schools/$schoolId/health-nearby'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   // ── Admin Analytics ───────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> getAdminOverview() async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/admin/analytics/overview'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/admin/analytics/overview'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   static Future<Map<String, dynamic>> getAdminRegions() async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/admin/analytics/regions'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/admin/analytics/regions'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   static Future<Map<String, dynamic>> getMapData() async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/admin/analytics/map-data'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/admin/analytics/map-data'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   static Future<Map<String, dynamic>> getAdminSchools() async {
     final headers = await _authHeaders();
-    final res = await http.get(Uri.parse('$baseUrl/api/admin/schools'), headers: headers);
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/admin/schools'),
+      headers: headers,
+    );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
   // ── Video Verification ────────────────────────────────────────────────────
-  static Future<Map<String, dynamic>> verifyVideo(int videoId, String status) async {
+  static Future<Map<String, dynamic>> verifyVideo(
+    int videoId,
+    String status,
+  ) async {
     final headers = await _authHeaders();
     final res = await http.post(
       Uri.parse('$baseUrl/api/videos/$videoId/verify'),
@@ -206,7 +293,11 @@ class ApiService {
       body: jsonEncode({'status': status}),
     );
     dynamic body;
-    try { body = jsonDecode(res.body); } catch (_) { body = {}; }
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
     return {'statusCode': res.statusCode, 'body': body};
   }
 
@@ -219,7 +310,15 @@ class ApiService {
         return List<String>.from(data['categories'] ?? []);
       }
     } catch (_) {}
-    return ['Greeting', 'Numbers', 'Colors', 'Family', 'Education', 'Health', 'Community'];
+    return [
+      'Greeting',
+      'Numbers',
+      'Colors',
+      'Family',
+      'Education',
+      'Health',
+      'Community',
+    ];
   }
 
   // ── Shared Prefs helpers ──────────────────────────────────────────────────
@@ -249,4 +348,3 @@ class ApiService {
     return prefs.getString('username') ?? '';
   }
 }
-
