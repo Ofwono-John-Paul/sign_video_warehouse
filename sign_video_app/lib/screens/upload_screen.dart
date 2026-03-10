@@ -19,6 +19,8 @@ class _UploadScreenState extends State<UploadScreen> {
   String? _fileName;
   bool _loading = false;
 
+  bool get _fileSelected => _filePath != null || _fileBytes != null;
+
   String _language = 'USL';
   String _sentenceType = 'Statement';
   String _category = 'Greeting';
@@ -205,22 +207,22 @@ class _UploadScreenState extends State<UploadScreen> {
                     height: 120,
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: _filePath != null ? Colors.green : cs.primary,
+                        color: _fileSelected ? Colors.green : cs.primary,
                         width: 2,
                       ),
                       borderRadius: BorderRadius.circular(12),
-                      color: (_filePath != null ? Colors.green : cs.primary)
+                      color: (_fileSelected ? Colors.green : cs.primary)
                           .withOpacity(0.08),
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          _filePath != null
+                          _fileSelected
                               ? Icons.check_circle
                               : Icons.video_library,
                           size: 40,
-                          color: _filePath != null ? Colors.green : cs.primary,
+                          color: _fileSelected ? Colors.green : cs.primary,
                         ),
                         const SizedBox(height: 8),
                         Padding(
@@ -228,7 +230,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           child: Text(
                             _fileName ?? 'Tap to select a video',
                             style: TextStyle(
-                              color: _filePath != null
+                              color: _fileSelected
                                   ? Colors.green
                                   : cs.primary,
                               fontWeight: FontWeight.w600,
@@ -239,7 +241,7 @@ class _UploadScreenState extends State<UploadScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (_filePath != null) ...[
+                        if (_fileSelected) ...[
                           const SizedBox(height: 4),
                           Text(
                             'Ready to upload',
