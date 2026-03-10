@@ -139,8 +139,7 @@ class HealthService(Base):
 
 class DimSchool(Base):
     __tablename__ = 'dim_school'
-    school_key    = Column(Integer, primary_key=True)
-    school_id     = Column(Integer)
+    school_key    = Column('school_id', Integer, primary_key=True)
     name          = Column(String(200))
     region        = Column(String(50))
     district      = Column(String(100))
@@ -290,11 +289,11 @@ def _ensure_category_key(name: str, db: Session) -> int:
 def _ensure_school_key(school_id: Optional[int], db: Session) -> Optional[int]:
     if not school_id:
         return None
-    e = db.query(DimSchool).filter_by(school_id=school_id).first()
+    e = db.query(DimSchool).filter(DimSchool.school_key == school_id).first()
     if not e:
         s = db.get(School, school_id)
         if s:
-            e = DimSchool(school_id=s.id, name=s.name, region=s.region,
+            e = DimSchool(school_key=s.id, name=s.name, region=s.region,
                           district=s.district, school_type=s.school_type,
                           deaf_students=s.deaf_students,
                           latitude=s.latitude, longitude=s.longitude)
