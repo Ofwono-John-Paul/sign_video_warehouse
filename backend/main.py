@@ -891,9 +891,6 @@ def add_health_service(
 #  ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-# if __name__ == '__main__':
-#     import uvicorn
-#     uvicorn.run('main:app', host='0.0.0.0', port=5000, reload=True)
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run('main:app', host='0.0.0.0', port=5000, reload=True)
