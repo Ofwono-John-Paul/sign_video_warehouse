@@ -886,11 +886,7 @@ def add_health_service(
     db.add(h); db.commit()
     return {'message': 'Added', 'id': h.id}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  ENTRY POINT
-# ══════════════════════════════════════════════════════════════════════════════
-
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run('main:app', host='0.0.0.0', port=5000, reload=True)

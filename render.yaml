@@ -1,0 +1,15 @@
+services:
+  - name: sign-video-app
+    type: web
+    env: static
+    rootDir: sign_video_app
+    buildCommand: chmod +x build_web.sh && ./build_web.sh
+    staticPublishPath: build/web
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
