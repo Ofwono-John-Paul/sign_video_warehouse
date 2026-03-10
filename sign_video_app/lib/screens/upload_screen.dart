@@ -32,15 +32,6 @@ class _UploadScreenState extends State<UploadScreen> {
   static const _categories = [
     'Education',
     'Health',
-    'Greeting',
-    'Numbers',
-    'Colors',
-    'Family',
-    'Community',
-    'Animals',
-    'Food',
-    'Transport',
-    'Other',
   ];
   static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
 
