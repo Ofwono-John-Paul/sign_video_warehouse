@@ -81,8 +81,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Email',
                       prefixIcon: Icon(Icons.email_outlined),
-                      helperText:
-                          'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
+                      // helperText:
+                      //     'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
                     ),
                     validator: (v) =>
                         v!.contains('@') ? null : 'Enter a valid email',
