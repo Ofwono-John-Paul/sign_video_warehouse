@@ -26,12 +26,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       if (res['statusCode'] == 201) {
-        final role = (res['body']['role'] ?? 'SCHOOL_USER').toString();
-        final msg = role == 'ADMIN'
-            ? 'Registered as Admin! Please login.'
-            : 'Registered successfully! Please login.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Registered successfully! Please login.'),
+            backgroundColor: Colors.green,
+          ),
         );
         Navigator.of(context).pop();
       } else {
@@ -81,8 +80,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Email',
                       prefixIcon: Icon(Icons.email_outlined),
-                      // helperText:
-                      //     'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
                     ),
                     validator: (v) =>
                         v!.contains('@') ? null : 'Enter a valid email',

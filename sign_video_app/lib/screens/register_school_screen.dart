@@ -54,12 +54,11 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
       });
       if (!mounted) return;
       if (res['statusCode'] == 201) {
-        final role = (res['body']['role'] ?? 'SCHOOL_USER').toString();
-        final msg = role == 'ADMIN'
-            ? 'School account registered as Admin! Please login.'
-            : 'School registered! Please login.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('School registered! Please login.'),
+            backgroundColor: Colors.green,
+          ),
         );
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -147,8 +146,6 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
                 Icons.email_outlined,
                 required: true,
                 keyType: TextInputType.emailAddress,
-                helperText:
-                    'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
               ),
               const SizedBox(height: 12),
               _field(
