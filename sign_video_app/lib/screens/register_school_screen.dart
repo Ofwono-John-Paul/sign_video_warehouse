@@ -10,30 +10,31 @@ class RegisterSchoolScreen extends StatefulWidget {
 
 class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _name       = TextEditingController();
-  final _district   = TextEditingController();
-  final _email      = TextEditingController();
-  final _phone      = TextEditingController();
-  final _lat        = TextEditingController();
-  final _lng        = TextEditingController();
-  final _deaf       = TextEditingController();
-  final _year       = TextEditingController();
-  final _username   = TextEditingController();
-  final _password   = TextEditingController();
-  final _confirm    = TextEditingController();
+  final _name = TextEditingController();
+  final _district = TextEditingController();
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  final _lat = TextEditingController();
+  final _lng = TextEditingController();
+  final _deaf = TextEditingController();
+  final _year = TextEditingController();
+  final _username = TextEditingController();
+  final _password = TextEditingController();
+  final _confirm = TextEditingController();
 
-  String _region     = 'Central';
+  String _region = 'Central';
   String _schoolType = 'Primary';
-  bool _loading      = false;
-  bool _obscure      = true;
+  bool _loading = false;
+  bool _obscure = true;
 
-  static const _regions     = ['Central', 'Western', 'Eastern', 'Northern'];
+  static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
   static const _schoolTypes = ['Primary', 'Secondary', 'Vocational'];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_password.text != _confirm.text) {
-      _err('Passwords do not match'); return;
+      _err('Passwords do not match');
+      return;
     }
     setState(() => _loading = true);
     try {
@@ -53,15 +54,21 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
       });
       if (!mounted) return;
       if (res['statusCode'] == 201) {
+        final role = (res['body']['role'] ?? 'SCHOOL_USER').toString();
+        final msg = role == 'ADMIN'
+            ? 'School account registered as Admin! Please login.'
+            : 'School registered! Please login.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('School registered! Please login.'),
-              backgroundColor: Colors.green),
+          SnackBar(content: Text(msg), backgroundColor: Colors.green),
         );
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
         );
       } else {
-        final errorMsg = res['body']['detail'] ?? res['body']['error'] ?? res['body'].toString();
+        final errorMsg =
+            res['body']['detail'] ??
+            res['body']['error'] ??
+            res['body'].toString();
         _err(errorMsg);
       }
     } catch (e) {
@@ -71,9 +78,9 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
     }
   }
 
-  void _err(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg), backgroundColor: Colors.red),
-  );
+  void _err(String msg) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
 
   @override
   Widget build(BuildContext context) {
@@ -102,10 +109,16 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
                   children: [
                     Icon(Icons.school, size: 48, color: cs.primary),
                     const SizedBox(height: 8),
-                    Text('School Registration',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold, color: cs.primary)),
-                    const Text('Register your deaf school to start contributing'),
+                    Text(
+                      'School Registration',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: cs.primary,
+                      ),
+                    ),
+                    const Text(
+                      'Register your deaf school to start contributing',
+                    ),
                   ],
                 ),
               ),
@@ -113,39 +126,105 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
               _label('SCHOOL INFORMATION'),
               _field(_name, 'School Name', Icons.business, required: true),
               const SizedBox(height: 12),
-              _dropdown('Region', _region, _regions, Icons.map_outlined, (v) => setState(() => _region = v!)),
+              _dropdown(
+                'Region',
+                _region,
+                _regions,
+                Icons.map_outlined,
+                (v) => setState(() => _region = v!),
+              ),
               const SizedBox(height: 12),
-              _field(_district, 'District', Icons.location_city, required: true),
+              _field(
+                _district,
+                'District',
+                Icons.location_city,
+                required: true,
+              ),
               const SizedBox(height: 12),
-              _field(_email, 'Contact Email', Icons.email_outlined,
-                  required: true, keyType: TextInputType.emailAddress),
+              _field(
+                _email,
+                'Contact Email',
+                Icons.email_outlined,
+                required: true,
+                keyType: TextInputType.emailAddress,
+                helperText:
+                    'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
+              ),
               const SizedBox(height: 12),
-              _field(_phone, 'Phone Number', Icons.phone_outlined,
-                  keyType: TextInputType.phone),
+              _field(
+                _phone,
+                'Phone Number',
+                Icons.phone_outlined,
+                keyType: TextInputType.phone,
+              ),
               const SizedBox(height: 20),
               _label('LOCATION (GPS)'),
-              Row(children: [
-                Expanded(child: _field(_lat, 'Latitude', Icons.gps_fixed,
-                    keyType: const TextInputType.numberWithOptions(decimal: true, signed: true))),
-                const SizedBox(width: 12),
-                Expanded(child: _field(_lng, 'Longitude', Icons.gps_fixed,
-                    keyType: const TextInputType.numberWithOptions(decimal: true, signed: true))),
-              ]),
+              Row(
+                children: [
+                  Expanded(
+                    child: _field(
+                      _lat,
+                      'Latitude',
+                      Icons.gps_fixed,
+                      keyType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _field(
+                      _lng,
+                      'Longitude',
+                      Icons.gps_fixed,
+                      keyType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
               _label('SCHOOL DETAILS'),
-              _dropdown('School Type', _schoolType, _schoolTypes, Icons.category_outlined,
-                  (v) => setState(() => _schoolType = v!)),
+              _dropdown(
+                'School Type',
+                _schoolType,
+                _schoolTypes,
+                Icons.category_outlined,
+                (v) => setState(() => _schoolType = v!),
+              ),
               const SizedBox(height: 12),
-              Row(children: [
-                Expanded(child: _field(_deaf, 'Deaf Students', Icons.people,
-                    keyType: TextInputType.number)),
-                const SizedBox(width: 12),
-                Expanded(child: _field(_year, 'Year Established', Icons.calendar_today,
-                    keyType: TextInputType.number)),
-              ]),
+              Row(
+                children: [
+                  Expanded(
+                    child: _field(
+                      _deaf,
+                      'Deaf Students',
+                      Icons.people,
+                      keyType: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _field(
+                      _year,
+                      'Year Established',
+                      Icons.calendar_today,
+                      keyType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
               _label('ACCOUNT CREDENTIALS'),
-              _field(_username, 'Username', Icons.person_outline, required: true),
+              _field(
+                _username,
+                'Username',
+                Icons.person_outline,
+                required: true,
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _password,
@@ -154,11 +233,14 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
                   labelText: 'Password *',
                   prefixIcon: const Icon(Icons.lock_outline),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                    ),
                     onPressed: () => setState(() => _obscure = !_obscure),
                   ),
                 ),
-                validator: (v) => v == null || v.length < 6 ? 'Min 6 chars' : null,
+                validator: (v) =>
+                    v == null || v.length < 6 ? 'Min 6 chars' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -174,15 +256,23 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
               ElevatedButton.icon(
                 onPressed: _loading ? null : _submit,
                 icon: _loading
-                    ? const SizedBox(width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.how_to_reg),
                 label: Text(_loading ? 'Registering...' : 'Register School'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: cs.primary,
                   foregroundColor: cs.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -199,31 +289,50 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
 
   Widget _label(String t) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text(t, style: TextStyle(
-        fontSize: 12, fontWeight: FontWeight.bold,
+    child: Text(
+      t,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
         color: Theme.of(context).colorScheme.primary,
-        letterSpacing: 1)),
+        letterSpacing: 1,
+      ),
+    ),
   );
 
-  Widget _field(TextEditingController ctrl, String label, IconData icon,
-      {bool required = false, TextInputType? keyType}) {
+  Widget _field(
+    TextEditingController ctrl,
+    String label,
+    IconData icon, {
+    bool required = false,
+    TextInputType? keyType,
+    String? helperText,
+  }) {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyType,
       decoration: InputDecoration(
         labelText: required ? '$label *' : label,
         prefixIcon: Icon(icon),
+        helperText: helperText,
       ),
       validator: required ? (v) => v!.isEmpty ? 'Required' : null : null,
     );
   }
 
-  Widget _dropdown(String label, String value, List<String> items,
-      IconData icon, ValueChanged<String?> onChanged) {
+  Widget _dropdown(
+    String label,
+    String value,
+    List<String> items,
+    IconData icon,
+    ValueChanged<String?> onChanged,
+  ) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
-      items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+      items: items
+          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+          .toList(),
       onChanged: onChanged,
     );
   }

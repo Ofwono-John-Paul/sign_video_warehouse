@@ -256,6 +256,15 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def _is_admin_email(email: str) -> bool:
+    """Treat emails containing '.admin' in local-part as admin accounts."""
+    e = (email or '').strip().lower()
+    if '@' not in e:
+        return False
+    local = e.split('@', 1)[0]
+    return '.admin' in local
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  DW HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -333,16 +342,21 @@ def register_school(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(400, detail=f'Fields required: {", ".join(missing)}')
     if data['region'] not in REGIONS:
         raise HTTPException(400, detail=f'Region must be one of: {", ".join(REGIONS)}')
-    if db.query(School).filter_by(contact_email=data['contact_email']).first():
+    contact_email = data['contact_email'].strip()
+    username = data['username'].strip()
+
+    if db.query(School).filter_by(contact_email=contact_email).first():
         raise HTTPException(409, detail='School email already registered')
     if db.query(User).filter(
-        or_(User.username == data['username'], User.email == data['contact_email'])
+        or_(User.username == username, User.email == contact_email)
     ).first():
         raise HTTPException(409, detail='Username or email already exists')
 
+    role = 'ADMIN' if _is_admin_email(contact_email) else 'SCHOOL_USER'
+
     school = School(
         name=data['school_name'].strip(), region=data['region'],
-        district=data['district'].strip(), contact_email=data['contact_email'].strip(),
+        district=data['district'].strip(), contact_email=contact_email,
         phone=(data.get('phone') or '').strip(),
         latitude=data.get('latitude'), longitude=data.get('longitude'),
         school_type=data.get('school_type', 'Primary'),
@@ -352,14 +366,18 @@ def register_school(data: dict, db: Session = Depends(get_db)):
     db.add(school); db.flush()
 
     user = User(
-        username=data['username'].strip(),
-        email=data['contact_email'].strip(),
+        username=username,
+        email=contact_email,
         password=generate_password_hash(data['password']),
-        role='SCHOOL_USER',
+        role=role,
         school_id=school.id,
     )
     db.add(user); db.commit()
-    return {'message': 'School registered successfully', 'school_id': school.id}
+    return {
+        'message': 'School registered successfully',
+        'school_id': school.id,
+        'role': role,
+    }
 
 
 @app.post('/api/register', status_code=201)
@@ -371,10 +389,11 @@ def register(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(400, detail='username, email and password required')
     if db.query(User).filter(or_(User.username == u, User.email == e)).first():
         raise HTTPException(409, detail='Username or email already exists')
+    role = 'ADMIN' if _is_admin_email(e) else 'SCHOOL_USER'
     db.add(User(username=u, email=e,
-                password=generate_password_hash(p), role='SCHOOL_USER'))
+                password=generate_password_hash(p), role=role))
     db.commit()
-    return {'message': 'Registered successfully'}
+    return {'message': 'Registered successfully', 'role': role}
 
 
 @app.post('/api/login')
@@ -386,6 +405,12 @@ def login(data: dict, db: Session = Depends(get_db)):
     ).first()
     if not user or not check_password_hash(user.password, pwd):
         raise HTTPException(401, detail='Invalid credentials')
+
+    # Backfill older accounts so .admin emails always get admin access.
+    if user.role != 'ADMIN' and _is_admin_email(user.email):
+        user.role = 'ADMIN'
+        db.commit()
+        db.refresh(user)
 
     token       = _create_token(user.user_id)
     school_info = None
@@ -713,6 +738,26 @@ def admin_overview(user: User = Depends(require_admin), db: Session = Depends(ge
             .group_by(Video.sign_category)\
             .order_by(func.count().desc()).all()
 
+    top_uploaders = db.query(
+        User.username,
+        User.email,
+        User.role,
+        School.name,
+        func.count(Video.id).label('uploads'),
+    ).outerjoin(Video, Video.uploader_id == User.user_id)\
+     .outerjoin(School, School.id == User.school_id)\
+     .group_by(User.user_id, User.username, User.email, User.role, School.name)\
+     .order_by(func.count(Video.id).desc(), User.username.asc())\
+     .limit(10).all()
+
+    top_signs = db.query(
+        Video.gloss_label,
+        func.count(Video.id).label('uploads'),
+    ).filter(Video.gloss_label.isnot(None))\
+     .group_by(Video.gloss_label)\
+     .order_by(func.count(Video.id).desc(), Video.gloss_label.asc())\
+     .limit(10).all()
+
     most_active = db.query(School.name, School.region, func.count(Video.id).label('u'))\
         .outerjoin(Video, Video.school_id == School.id)\
         .group_by(School.id, School.name, School.region)\
@@ -734,6 +779,17 @@ def admin_overview(user: User = Depends(require_admin), db: Session = Depends(ge
         'videos_per_region':   [{'region': r or 'Unknown', 'count': c} for r, c in vpr],
         # Flutter uses 'by_category' with 'sign_category' key on each item
         'by_category': [{'sign_category': c or 'Other', 'count': n} for c, n in vpc],
+        'top_uploaders': [{
+            'username': u,
+            'email': e,
+            'role': r,
+            'school_name': s or 'Individual',
+            'uploads': int(n or 0),
+        } for u, e, r, s, n in top_uploaders],
+        'top_signs': [{
+            'gloss_label': g or 'Unknown',
+            'uploads': int(n or 0),
+        } for g, n in top_signs],
         'most_active_schools': [{'name': n, 'region': r, 'uploads': u} for n, r, u in most_active],
         'upload_trend':        [{'month': str(m.m)[:7], 'count': m.c} for m in trend],
     }

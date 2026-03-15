@@ -10,7 +10,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameCtrl = TextEditingController();
-  final _emailCtrl    = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
@@ -26,11 +26,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       if (res['statusCode'] == 201) {
+        final role = (res['body']['role'] ?? 'SCHOOL_USER').toString();
+        final msg = role == 'ADMIN'
+            ? 'Registered as Admin! Please login.'
+            : 'Registered successfully! Please login.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Registered successfully! Please login.'),
-            backgroundColor: Colors.green,
-          ),
+          SnackBar(content: Text(msg), backgroundColor: Colors.green),
         );
         Navigator.of(context).pop();
       } else {
@@ -44,9 +45,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   @override
@@ -80,6 +81,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Email',
                       prefixIcon: Icon(Icons.email_outlined),
+                      helperText:
+                          'Use .admin in email local-part (e.g. jp.admin@gmail.com) for admin access.',
                     ),
                     validator: (v) =>
                         v!.contains('@') ? null : 'Enter a valid email',
@@ -92,7 +95,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       labelText: 'Password',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                        icon: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                        ),
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
                     ),
@@ -109,7 +114,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Text('Register'),
                   ),
