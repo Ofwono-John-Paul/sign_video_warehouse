@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 import '../services/api_service.dart';
+import 'live_record_screen.dart';
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -12,8 +16,11 @@ class _UploadScreenState extends State<UploadScreen> {
   final _formKey = GlobalKey<FormState>();
   final _glossCtrl = TextEditingController();
   final _districtCtrl = TextEditingController();
+  final _imagePicker = ImagePicker();
 
   PlatformFile? _selectedFile;
+  bool _isLiveRecording = false;
+  bool _hasConsent = false;
   bool _loading = false;
 
   String _language = 'USL';
@@ -29,20 +36,213 @@ class _UploadScreenState extends State<UploadScreen> {
     'Exclamation',
     'Other',
   ];
-  static const _categories = [
-    'Education',
-    'Health',
-  ];
+  static const _categories = ['Education', 'Health'];
   static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
 
   Future<void> _pickFile() async {
+    // Use image_picker for web/mobile so picked files always have a previewable URI.
+    if (kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final picked = await _imagePicker.pickVideo(source: ImageSource.gallery);
+        if (picked == null || !mounted) return;
+
+        final bytes = await picked.readAsBytes();
+        if (!mounted) return;
+
+        await _previewAndConfirmSelectedVideo(
+          fileName: picked.name.isNotEmpty ? picked.name : 'selected_video.mp4',
+          filePath: picked.path,
+          bytes: bytes,
+          isLiveSource: false,
+        );
+      } catch (_) {
+        _showError('Could not open local video picker. Please try again.');
+      }
+      return;
+    }
+
     final result = await FilePicker.platform.pickFiles(
       type: FileType.video,
-      withData: true, // always load bytes — required for web
+      withData: true,
     );
-    if (result != null) {
-      setState(() => _selectedFile = result.files.first);
+    if (result == null || !mounted) return;
+
+    final picked = result.files.first;
+    await _previewAndConfirmSelectedVideo(
+      fileName: picked.name,
+      filePath: picked.path,
+      bytes: picked.bytes,
+      isLiveSource: false,
+    );
+  }
+
+  Future<void> _recordLiveVideo() async {
+    try {
+      final captured = await Navigator.of(context).push<LiveVideoCaptureResult>(
+        MaterialPageRoute(
+          builder: (_) => const LiveRecordScreen(maxDuration: Duration(minutes: 2)),
+        ),
+      );
+
+      if (captured == null || !mounted) return;
+      setState(() {
+        _selectedFile = PlatformFile(
+          name: captured.fileName,
+          path: captured.filePath,
+          size: captured.bytes.length,
+          bytes: captured.bytes,
+        );
+        _isLiveRecording = true;
+      });
+    } catch (_) {
+      _showError('Could not start camera recording on this device.');
     }
+  }
+
+  Future<void> _previewAndConfirmSelectedVideo({
+    required String fileName,
+    required bool isLiveSource,
+    String? filePath,
+    Uint8List? bytes,
+  }) async {
+    Uri? uri;
+    if (filePath != null && filePath.isNotEmpty) {
+      uri = filePath.startsWith('http') ||
+              filePath.startsWith('blob:') ||
+              filePath.startsWith('file:')
+          ? Uri.parse(filePath)
+          : Uri.file(filePath);
+    }
+
+    if (uri == null) {
+      _showError('Could not preview this video. Please pick another file.');
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(uri);
+
+    try {
+      await controller.initialize();
+      controller.setLooping(true);
+      await controller.play();
+    } catch (_) {
+      await controller.dispose();
+      _showError(
+        'Could not preview recorded video. Please try recording again.',
+      );
+      return;
+    }
+
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(isLiveSource ? 'Preview Recording' : 'Preview Video'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AspectRatio(
+                    aspectRatio: controller.value.aspectRatio == 0
+                        ? 16 / 9
+                        : controller.value.aspectRatio,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: VideoPlayer(controller),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  IconButton(
+                    iconSize: 34,
+                    onPressed: () async {
+                      if (controller.value.isPlaying) {
+                        await controller.pause();
+                      } else {
+                        await controller.play();
+                      }
+                      setDialogState(() {});
+                    },
+                    icon: Icon(
+                      controller.value.isPlaying
+                          ? Icons.pause_circle
+                          : Icons.play_circle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Reject'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.check),
+                label: const Text('Accept'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    await controller.pause();
+    await controller.dispose();
+
+    if (accepted == true && mounted) {
+      setState(() {
+        _selectedFile = PlatformFile(
+          name: fileName,
+          path: filePath,
+          size: bytes?.length ?? 0,
+          bytes: bytes,
+        );
+        _isLiveRecording = isLiveSource;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _selectedFile = null;
+        _isLiveRecording = false;
+      });
+    }
+  }
+
+  Future<bool> _confirmUploadConsent() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Consent and Submit'),
+        content: const Text(
+          'You are about to submit this video. Please confirm that the signer '
+          'has given consent and that this upload is permitted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Confirm & Submit'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
   }
 
   Future<void> _upload() async {
@@ -50,7 +250,16 @@ class _UploadScreenState extends State<UploadScreen> {
     if (_selectedFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select a video file'),
+          content: Text('Please select or record a video file'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (!_hasConsent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please provide consent before uploading.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -65,6 +274,9 @@ class _UploadScreenState extends State<UploadScreen> {
       );
       return;
     }
+
+    final confirmed = await _confirmUploadConsent();
+    if (!confirmed) return;
 
     setState(() => _loading = true);
     try {
@@ -105,6 +317,8 @@ class _UploadScreenState extends State<UploadScreen> {
     _districtCtrl.clear();
     setState(() {
       _selectedFile = null;
+      _isLiveRecording = false;
+      _hasConsent = false;
       _category = 'Education';
       _language = 'USL';
       _sentenceType = 'Statement';
@@ -153,7 +367,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
+                        color: Colors.black.withValues(alpha: 0.06),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -237,7 +451,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           ),
                           borderRadius: BorderRadius.circular(10),
                           color: _selectedFile != null
-                              ? Colors.green.withOpacity(0.05)
+                              ? Colors.green.withValues(alpha: 0.05)
                               : null,
                         ),
                         child: _selectedFile == null
@@ -254,14 +468,26 @@ class _UploadScreenState extends State<UploadScreen> {
                                     style: TextStyle(color: Colors.grey[600]),
                                   ),
                                   const SizedBox(height: 14),
-                                  ElevatedButton.icon(
-                                    onPressed: _pickFile,
-                                    icon: const Icon(Icons.cloud_upload),
-                                    label: const Text('Select Video File'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: cs.primary,
-                                      foregroundColor: cs.onPrimary,
-                                    ),
+                                  Wrap(
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      ElevatedButton.icon(
+                                        onPressed: _pickFile,
+                                        icon: const Icon(Icons.folder_open),
+                                        label: const Text('Local Video'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: cs.primary,
+                                          foregroundColor: cs.onPrimary,
+                                        ),
+                                      ),
+                                      FilledButton.icon(
+                                        onPressed: _recordLiveVideo,
+                                        icon: const Icon(Icons.videocam),
+                                        label: const Text('Live Recording'),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               )
@@ -282,6 +508,20 @@ class _UploadScreenState extends State<UploadScreen> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
+                                  const SizedBox(height: 6),
+                                  Chip(
+                                    avatar: Icon(
+                                      _isLiveRecording
+                                          ? Icons.videocam
+                                          : Icons.folder,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      _isLiveRecording
+                                          ? 'Live recording selected'
+                                          : 'Local video selected',
+                                    ),
+                                  ),
                                   const SizedBox(height: 4),
                                   Text(
                                     '${(_selectedFile!.size / 1024 / 1024).toStringAsFixed(2)} MB',
@@ -298,6 +538,23 @@ class _UploadScreenState extends State<UploadScreen> {
                                   ),
                                 ],
                               ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _hasConsent,
+                        onChanged: _loading
+                            ? null
+                            : (value) =>
+                                  setState(() => _hasConsent = value ?? false),
+                        title: const Text(
+                          'I confirm informed consent was obtained.',
+                        ),
+                        subtitle: const Text(
+                          'Required before upload submission.',
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
                       ),
                       const SizedBox(height: 28),
 
@@ -357,7 +614,7 @@ class _UploadScreenState extends State<UploadScreen> {
     ValueChanged<String?> onChanged,
   ) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
