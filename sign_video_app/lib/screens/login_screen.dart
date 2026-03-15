@@ -42,7 +42,9 @@ class _LoginScreenState extends State<LoginScreen> {
         } else {
           dest = const HomeScreen();
         }
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => dest));
+        Navigator.of(
+          context,
+        ).pushReplacement(MaterialPageRoute(builder: (_) => dest));
       } else {
         _showError(res['body']['error'] ?? 'Login failed');
       }
@@ -54,9 +56,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   @override
@@ -77,19 +79,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   Text(
                     'Sign Video Warehouse',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.bold, color: cs.primary),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: cs.primary,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  Text('Sign in to continue', textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium),
+                  Text(
+                    'Sign in to continue',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                   const SizedBox(height: 36),
                   TextFormField(
                     controller: _usernameCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Username',
+                      labelText: 'Username or Email',
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     validator: (v) => v!.isEmpty ? 'Required' : null,
@@ -102,7 +107,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Password',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                        icon: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                        ),
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
                     ),
@@ -119,14 +126,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Text('Login'),
                   ),
                   const SizedBox(height: 16),
                   TextButton(
                     onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const RegisterSchoolScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const RegisterSchoolScreen(),
+                      ),
                     ),
                     child: const Text("Register a School"),
                   ),
