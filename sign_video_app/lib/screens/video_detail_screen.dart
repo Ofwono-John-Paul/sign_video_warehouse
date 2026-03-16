@@ -24,7 +24,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   Future<void> _initPlayer() async {
-    final url = ApiService.getVideoUrl(widget.video['file_path']?.toString());
+    final url = ApiService.getVideoUrl(
+      widget.video['video_url']?.toString() ?? widget.video['file_path']?.toString(),
+    );
     if (url.isEmpty) {
       setState(() {
         _errorMsg = 'No video file available.';
