@@ -2,9 +2,12 @@
 Uganda Sign Language Crowdsourcing Platform  v2.0
 Backend: FastAPI + PostgreSQL (OLTP + DW Hybrid Star Schema)
 """
-import os, math, shutil
+import os, math
 from datetime import datetime, timedelta
 from typing import Optional
+
+import cloudinary
+import cloudinary.uploader
 
 from fastapi import (
     FastAPI, Depends, HTTPException, UploadFile, File,
@@ -13,7 +16,6 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.staticfiles import StaticFiles
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean,
@@ -27,22 +29,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── CONFIGURATION ──────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv(
-    'DATABASE_URL',
-    'postgresql://postgres:John%40004.com@localhost:5432/sign_video_dw'
-)
-JWT_SECRET  = os.getenv('JWT_SECRET_KEY', 'usl-secret-2026')
-JWT_ALGO    = 'HS256'
-JWT_EXPIRE  = timedelta(days=7)
+# ── DATABASE CONFIG ────────────────────────────────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Fix for SQLAlchemy compatibility
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# ── JWT CONFIG ───────────────────────────────────────────
+JWT_SECRET = os.getenv("JWT_SECRET_KEY", "usl-secret-2026")
+JWT_ALGO = "HS256"
+JWT_EXPIRE = timedelta(days=7)
+
+# ── CLOUDINARY CONFIG─────────────────────────────────────
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
 REGIONS      = ['Central', 'Western', 'Eastern', 'Northern']
 SCHOOL_TYPES = ['Primary', 'Secondary', 'Vocational']
-CATEGORIES   = ['Education', 'Health', 'Agriculture', 'Commerce',
-                'Government', 'Culture', 'Technology', 'Sports', 'Other']
+CATEGORIES   = ['Education', 'Health']
 VERIFIED     = ['pending', 'approved', 'rejected']
 
 # ── DATABASE ───────────────────────────────────────────────────────────────────
@@ -68,8 +77,6 @@ app.add_middleware(
     allow_headers=['*'], allow_credentials=True,
 )
 
-# Serve uploaded files at /uploads/<filename>
-app.mount('/uploads', StaticFiles(directory=UPLOAD_FOLDER), name='uploads')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -213,11 +220,7 @@ try:
 finally:
     _seed_db.close()
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  AUTH / JWT
-# ══════════════════════════════════════════════════════════════════════════════
-
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -264,11 +267,7 @@ def _is_admin_email(email: str) -> bool:
     local = e.split('@', 1)[0]
     return '.admin' in local
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  DW HELPERS
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _haversine(lat1, lon1, lat2, lon2) -> float:
     R = 6371
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -319,11 +318,7 @@ def _ensure_region_key(region_name: Optional[str], db: Session) -> Optional[int]
         db.add(e); db.flush()
     return e.region_key
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  AUTH ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
-
 @app.get('/api/health')
 def health_check():
     return {'status': 'ok', 'version': '2.0', 'framework': 'FastAPI'}
@@ -427,11 +422,7 @@ def login(data: dict, db: Session = Depends(get_db)):
         },
     }
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  VIDEO
-# ══════════════════════════════════════════════════════════════════════════════
-
 async def _handle_upload(
     file: UploadFile,
     gloss_label:     str,
@@ -445,11 +436,14 @@ async def _handle_upload(
     db:  Session,
 ):
     try:
-        ts       = datetime.now().strftime('%Y%m%d%H%M%S%f')
-        savepath = os.path.join(UPLOAD_FOLDER, f'{ts}_{file.filename}')
-        with open(savepath, 'wb') as out:
-            shutil.copyfileobj(file.file, out)
-        size_kb = os.path.getsize(savepath) / 1024
+        # Upload directly to Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            resource_type="video",
+            folder="usl_videos",
+        )
+        video_url = upload_result["secure_url"]
+        size_kb   = (upload_result.get("bytes") or 0) / 1024
 
         # If region/district not provided, fall back to school's values
         if not region and user.school_id:
@@ -461,7 +455,7 @@ async def _handle_upload(
 
         video = Video(
             school_id=user.school_id, uploader_id=user.user_id,
-            file_path=savepath,
+            file_path=video_url,
             gloss_label=gloss_label,
             language_variant=language,
             sign_category=sign_category or 'Other',
@@ -629,11 +623,7 @@ def verify_video(
     db.commit()
     return {'message': f'Video {new_status}', 'video_id': video_id}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  SCHOOL ANALYTICS
-# ══════════════════════════════════════════════════════════════════════════════
-
 @app.get('/api/schools/{school_id}/analytics')
 def school_analytics(
     school_id: int,
