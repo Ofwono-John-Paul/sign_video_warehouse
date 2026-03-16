@@ -25,7 +25,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _initPlayer() async {
     final url = ApiService.getVideoUrl(
-      widget.video['video_url']?.toString() ?? widget.video['file_path']?.toString(),
+      widget.video['video_url']?.toString() ??
+          widget.video['file_path']?.toString(),
     );
     if (url.isEmpty) {
       setState(() {
@@ -47,8 +48,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         errorBuilder: (ctx, msg) => Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('Playback error: $msg',
-                style: const TextStyle(color: Colors.red)),
+            child: Text(
+              'Playback error: $msg',
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ),
       );
@@ -80,7 +83,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     if (_initializing) {
       return Container(
         color: Colors.black,
-        child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+        child: const Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
       );
     }
     if (_errorMsg != null) {
@@ -89,23 +94,35 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Text(_errorMsg!,
-                style: const TextStyle(color: Colors.redAccent),
-                textAlign: TextAlign.center),
+            child: Text(
+              _errorMsg!,
+              style: const TextStyle(color: Colors.redAccent),
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       );
     }
     if (_chewieController != null) {
-      return Container(color: Colors.black, child: Chewie(controller: _chewieController!));
+      return Container(
+        color: Colors.black,
+        child: Chewie(controller: _chewieController!),
+      );
     }
     return Container(
       color: Colors.black,
-      child: Center(child: Icon(Icons.videocam_off, size: 64, color: cs.primary)),
+      child: Center(
+        child: Icon(Icons.videocam_off, size: 64, color: cs.primary),
+      ),
     );
   }
 
-  Widget _row(BuildContext context, IconData icon, String label, String? value) {
+  Widget _row(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String? value,
+  ) {
     if (value == null || value.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -118,13 +135,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                Text(value,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
@@ -149,21 +173,32 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             children: [
               // ── Status banner ─────────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
-                  color: isApproved ? Colors.green.shade50 : Colors.orange.shade50,
-                  border: Border.all(color: isApproved ? Colors.green : Colors.orange),
+                  color: isApproved
+                      ? Colors.green.shade50
+                      : Colors.orange.shade50,
+                  border: Border.all(
+                    color: isApproved ? Colors.green : Colors.orange,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
-                    Icon(isApproved ? Icons.check_circle : Icons.pending,
-                        color: isApproved ? Colors.green : Colors.orange),
+                    Icon(
+                      isApproved ? Icons.check_circle : Icons.pending,
+                      color: isApproved ? Colors.green : Colors.orange,
+                    ),
                     const SizedBox(width: 10),
                     Text(
                       status.toUpperCase(),
                       style: TextStyle(
-                        color: isApproved ? Colors.green.shade800 : Colors.orange.shade800,
+                        color: isApproved
+                            ? Colors.green.shade800
+                            : Colors.orange.shade800,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -181,20 +216,76 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               ),
               const SizedBox(height: 24),
               const Divider(),
-              _row(context, Icons.label,         'Gloss Label',   widget.video['gloss_label']?.toString()),
-              _row(context, Icons.language,       'Language',      widget.video['language']?.toString()),
-              _row(context, Icons.type_specimen,  'Sentence Type', widget.video['sentence_type']?.toString()),
-              _row(context, Icons.category,       'Category',      widget.video['category']?.toString()),
-              _row(context, Icons.person,         'Uploader',      widget.video['uploader']?.toString()),
-              _row(context, Icons.business,       'School',        widget.video['school_name']?.toString()),
-              _row(context, Icons.location_on,    'Region',        widget.video['region']?.toString()),
-              _row(context, Icons.location_city,  'District',      widget.video['district']?.toString()),
-              _row(context, Icons.calendar_today, 'Upload Date',   widget.video['upload_date']?.toString()),
-              _row(context, Icons.timer,          'Duration',      widget.video['duration'] != null ? '${widget.video['duration']} sec' : null),
-              _row(context, Icons.storage, 'File Size',
-                  widget.video['file_size_kb'] != null
-                      ? '${(widget.video['file_size_kb'] as num).toStringAsFixed(1)} KB'
-                      : null),
+              _row(
+                context,
+                Icons.label,
+                'Gloss Label',
+                widget.video['gloss_label']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.language,
+                'Language',
+                widget.video['language']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.type_specimen,
+                'Sentence Type',
+                widget.video['sentence_type']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.category,
+                'Category',
+                widget.video['category']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.person,
+                'Uploader',
+                widget.video['uploader']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.business,
+                'School',
+                widget.video['school_name']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.location_on,
+                'Region',
+                widget.video['region']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.location_city,
+                'District',
+                widget.video['district']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.calendar_today,
+                'Upload Date',
+                widget.video['upload_date']?.toString(),
+              ),
+              _row(
+                context,
+                Icons.timer,
+                'Duration',
+                widget.video['duration'] != null
+                    ? '${widget.video['duration']} sec'
+                    : null,
+              ),
+              _row(
+                context,
+                Icons.storage,
+                'File Size',
+                widget.video['file_size_kb'] != null
+                    ? '${(widget.video['file_size_kb'] as num).toStringAsFixed(1)} KB'
+                    : null,
+              ),
               const Divider(),
               const SizedBox(height: 8),
               Text(

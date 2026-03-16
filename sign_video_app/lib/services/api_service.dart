@@ -105,9 +105,20 @@ class ApiService {
   /// Converts a server-side file path to a streamable URL for the phone.
   static String getVideoUrl(String? filePath) {
     if (filePath == null || filePath.isEmpty) return '';
-    // Extract just the filename from the full Windows server path
-    final filename = filePath.replaceAll('\\', '/').split('/').last;
-    return '$baseUrl/uploads/$filename';
+    final value = filePath.trim();
+
+    // Cloudinary and other remote URLs should be used as-is.
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+
+    // Legacy local paths are no longer served after moving to Cloudinary.
+    if (value.startsWith('/uploads/') || value.contains('\\')) {
+      return '';
+    }
+
+    // Keep other relative URLs untouched for forward compatibility.
+    return value;
   }
 
   /// Upload a video file with metadata. [filePath] is the local file path.
