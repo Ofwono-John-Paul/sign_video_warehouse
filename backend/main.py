@@ -478,7 +478,10 @@ async def _handle_upload(
         )
         db.add(fact); db.commit()
         return {'message': 'Video uploaded successfully',
-                'video_id': video.id, 'verified_status': 'pending'}
+            'video_id': video.id,
+            'verified_status': 'pending',
+            'video_url': video_url,
+            'file_path': video_url}
     except Exception as e:
         db.rollback()
         print(f"ERROR in _handle_upload: {type(e).__name__}: {str(e)}")
@@ -548,6 +551,7 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'region':          v.region,
         'district':        v.district,
         'file_path':       v.file_path,
+        'video_url':       v.file_path,
         'file_size_kb':    round(v.file_size_kb or 0, 1),
         'duration':        v.duration,
         'verified_status': v.verified_status,
@@ -597,7 +601,9 @@ def get_video(video_id: int,
         dv = db.get(DimVideo, video_id)
         if dv:
             return {'video_id': dv.video_id, 'gloss_label': dv.gloss_label,
-                    'language': dv.language, 'file_path': dv.file_path,
+                    'language': dv.language,
+                    'file_path': dv.file_path,
+                    'video_url': dv.file_path,
                     'verified_status': 'approved'}
         raise HTTPException(404, detail='Video not found')
     return _fmt_video(v, db)
@@ -884,6 +890,7 @@ def admin_videos(
             'region':         v.region,
             'district':       v.district,
             'file_path':      v.file_path,
+            'video_url':      v.file_path,
             'file_size_kb':   v.file_size_kb,
             'verified_status': v.verified_status,
             'upload_date':    str(v.upload_timestamp)[:10] if v.upload_timestamp else '',
