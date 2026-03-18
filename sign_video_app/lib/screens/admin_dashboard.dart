@@ -198,8 +198,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                         reservedSize: 28,
                         getTitlesWidget: (v, _) {
                           final idx = v.toInt();
-                          if (idx < 0 || idx >= _regions.length)
+                          if (idx < 0 || idx >= _regions.length) {
                             return const SizedBox.shrink();
+                          }
                           final region =
                               (_regions[idx]['region'] as String?) ?? '';
                           return Transform.rotate(
@@ -361,6 +362,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   Widget _mapTab(ColorScheme cs) {
     final schoolPins = (_mapData['schools'] as List?) ?? [];
     final healthPins = (_mapData['health'] as List?) ?? [];
+    final videoSourcePins = (_mapData['video_sources'] as List?) ?? [];
 
     return Column(
       children: [
@@ -372,6 +374,8 @@ class _AdminDashboardState extends State<AdminDashboard>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _legendDot(Colors.blue, 'Schools'),
+              const SizedBox(width: 16),
+              _legendDot(Colors.teal, 'Video Sources'),
               const SizedBox(width: 16),
               _legendDot(Colors.red, 'Health Facilities'),
             ],
@@ -396,15 +400,63 @@ class _AdminDashboardState extends State<AdminDashboard>
                     if (lat == null || lng == null || lat == 0 || lng == 0) {
                       return null;
                     }
-                    final region = s['region'] as String? ?? '';
-                    final color = _regionColors[region] ?? Colors.blue;
                     return Marker(
                       point: LatLng(lat, lng),
-                      width: 30,
-                      height: 30,
+                      width: 20,
+                      height: 20,
                       child: GestureDetector(
-                        onTap: () => _showPin(s['name'], s['district']),
-                        child: Icon(Icons.school, color: color, size: 28),
+                        onTap: () => _showPin(
+                          s['name'],
+                          '${s['district']} · ${s['total_uploads'] ?? 0} uploads',
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).whereType<Marker>(),
+                  ...videoSourcePins.map((v) {
+                    final lat = (v['latitude'] as num?)?.toDouble();
+                    final lng = (v['longitude'] as num?)?.toDouble();
+                    if (lat == null || lng == null || lat == 0 || lng == 0) {
+                      return null;
+                    }
+                    return Marker(
+                      point: LatLng(lat, lng),
+                      width: 34,
+                      height: 34,
+                      child: GestureDetector(
+                        onTap: () => _showVideoSourcePin(v),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.teal,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x33000000),
+                                blurRadius: 5,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.play_arrow,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
                       ),
                     );
                   }).whereType<Marker>(),
@@ -446,6 +498,62 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
+  void _showVideoSourcePin(dynamic raw) {
+    final pin = (raw as Map).cast<String, dynamic>();
+    final videoId = pin['video_id'] as int?;
+    final known = _videos.where((e) => (e as Map)['video_id'] == videoId);
+    final videoForDetails = known.isNotEmpty
+        ? known.first as Map<String, dynamic>
+        : pin;
+
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                pin['gloss_label']?.toString().isNotEmpty == true
+                    ? pin['gloss_label'].toString()
+                    : 'Video Source',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('School: ${pin['school_name'] ?? 'Individual'}'),
+              Text('Location: ${pin['district'] ?? ''}, ${pin['region'] ?? ''}'),
+              Text('Geo source: ${pin['geo_source'] ?? 'unknown'}'),
+              Text('Status: ${pin['verified_status'] ?? 'pending'}'),
+              if ((pin['upload_date'] ?? '').toString().isNotEmpty)
+                Text('Uploaded: ${pin['upload_date']}'),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(this.context).push(
+                      MaterialPageRoute(
+                        builder: (_) => VideoDetailScreen(video: videoForDetails),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Open Video'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _legendDot(Color color, String label) => Row(
     children: [
       Container(
@@ -460,8 +568,9 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   // ── Schools tab ────────────────────────────────────────────────────────────
   Widget _schoolsTab(ColorScheme cs) {
-    if (_schools.isEmpty)
+    if (_schools.isEmpty) {
       return const Center(child: Text('No schools registered yet.'));
+    }
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
