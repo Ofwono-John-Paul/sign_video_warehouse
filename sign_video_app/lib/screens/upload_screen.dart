@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
 import 'live_record_screen.dart';
 
@@ -22,6 +23,11 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _isLiveRecording = false;
   bool _hasConsent = false;
   bool _loading = false;
+  bool _resolvingLocation = false;
+
+  double? _latitude;
+  double? _longitude;
+  String _geoSource = '';
 
   String _language = 'USL';
   String _sentenceType = 'Statement';
@@ -249,6 +255,55 @@ class _UploadScreenState extends State<UploadScreen> {
     return confirmed ?? false;
   }
 
+  Future<void> _captureGeoTag() async {
+    if (_resolvingLocation) return;
+    setState(() => _resolvingLocation = true);
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showError('Location services are disabled on this device.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showError('Location permission denied. Geotag will be skipped.');
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _latitude = pos.latitude;
+        _longitude = pos.longitude;
+        _geoSource = 'device_gps';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location captured for this upload.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (_) {
+      _showError(
+        'Could not capture location. You can still upload without geotag.',
+      );
+    } finally {
+      if (mounted) setState(() => _resolvingLocation = false);
+    }
+  }
+
   Future<void> _upload() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedFile == null) {
@@ -293,6 +348,11 @@ class _UploadScreenState extends State<UploadScreen> {
         category: _category,
         region: _region,
         district: _districtCtrl.text.trim(),
+        latitude: _latitude,
+        longitude: _longitude,
+        geoSource: _geoSource.isNotEmpty
+            ? _geoSource
+            : 'declared_region_district',
       );
       if (!mounted) return;
       if (res['statusCode'] == 201) {
@@ -323,6 +383,9 @@ class _UploadScreenState extends State<UploadScreen> {
       _selectedFile = null;
       _isLiveRecording = false;
       _hasConsent = false;
+      _latitude = null;
+      _longitude = null;
+      _geoSource = '';
       _category = 'Education';
       _language = 'USL';
       _sentenceType = 'Statement';
@@ -444,6 +507,35 @@ class _UploadScreenState extends State<UploadScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ── Geotag capture ───────────────────────────────────
+                      OutlinedButton.icon(
+                        onPressed: (_loading || _resolvingLocation)
+                            ? null
+                            : _captureGeoTag,
+                        icon: _resolvingLocation
+                            ? const SizedBox(
+                                height: 16,
+                                width: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.my_location),
+                        label: Text(
+                          _latitude == null || _longitude == null
+                              ? 'Capture Current Location (Optional)'
+                              : 'Refresh Location',
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _latitude != null && _longitude != null
+                            ? 'Geotag: ${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)} (source: $_geoSource)'
+                            : 'No geotag yet. Upload can continue without location.',
+                        style: TextStyle(color: Colors.grey[700], fontSize: 12),
                       ),
                       const SizedBox(height: 22),
 
