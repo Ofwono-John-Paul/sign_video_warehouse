@@ -526,7 +526,9 @@ class _AdminDashboardState extends State<AdminDashboard>
               ),
               const SizedBox(height: 8),
               Text('School: ${pin['school_name'] ?? 'Individual'}'),
-              Text('Location: ${pin['district'] ?? ''}, ${pin['region'] ?? ''}'),
+              Text(
+                'Location: ${pin['district'] ?? ''}, ${pin['region'] ?? ''}',
+              ),
               Text('Geo source: ${pin['geo_source'] ?? 'unknown'}'),
               Text('Status: ${pin['verified_status'] ?? 'pending'}'),
               if ((pin['upload_date'] ?? '').toString().isNotEmpty)
@@ -539,7 +541,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                     Navigator.of(context).pop();
                     Navigator.of(this.context).push(
                       MaterialPageRoute(
-                        builder: (_) => VideoDetailScreen(video: videoForDetails),
+                        builder: (_) =>
+                            VideoDetailScreen(video: videoForDetails),
                       ),
                     );
                   },
