@@ -2,10 +2,22 @@
 v2 Schema Migration
 Run once to create new tables and extend existing ones.
 """
+import os
 from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
-DB = 'postgresql://postgres:Kisirinya%2A256@localhost:5432/sign_video_dw'
-engine = create_engine(DB)
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Fix for SQLAlchemy compatibility
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL not set in environment. Check your .env file.")
+
+engine = create_engine(DATABASE_URL)
 
 statements = [
     # New OLTP tables
@@ -55,12 +67,18 @@ statements = [
         sentence_type VARCHAR(50),
         region VARCHAR(50),
         district VARCHAR(100),
+        uploader_latitude FLOAT,
+        uploader_longitude FLOAT,
+        geo_source VARCHAR(50),
         duration FLOAT DEFAULT 0,
         file_size_kb FLOAT DEFAULT 0,
         verified_status VARCHAR(20) DEFAULT 'pending',
         upload_timestamp TIMESTAMP DEFAULT NOW()
     )
     """,
+    "ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_latitude FLOAT",
+    "ALTER TABLE videos ADD COLUMN IF NOT EXISTS uploader_longitude FLOAT",
+    "ALTER TABLE videos ADD COLUMN IF NOT EXISTS geo_source VARCHAR(50)",
     # DW tables
     """
     CREATE TABLE IF NOT EXISTS dim_school (
