@@ -28,7 +28,7 @@ class _UploadScreenState extends State<UploadScreen> {
   String _category = 'Education';
   String _region = 'Central';
 
-  static const _languages = ['USL', 'English', 'Luganda', 'Swahili', 'Arabic'];
+  static const _languages = ['USL', 'English', 'Luganda'];
   static const _sentenceTypes = [
     'Statement',
     'Question',
@@ -45,7 +45,9 @@ class _UploadScreenState extends State<UploadScreen> {
         defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS) {
       try {
-        final picked = await _imagePicker.pickVideo(source: ImageSource.gallery);
+        final picked = await _imagePicker.pickVideo(
+          source: ImageSource.gallery,
+        );
         if (picked == null || !mounted) return;
 
         final bytes = await picked.readAsBytes();
@@ -82,7 +84,8 @@ class _UploadScreenState extends State<UploadScreen> {
     try {
       final captured = await Navigator.of(context).push<LiveVideoCaptureResult>(
         MaterialPageRoute(
-          builder: (_) => const LiveRecordScreen(maxDuration: Duration(minutes: 2)),
+          builder: (_) =>
+              const LiveRecordScreen(maxDuration: Duration(minutes: 2)),
         ),
       );
 
@@ -109,7 +112,8 @@ class _UploadScreenState extends State<UploadScreen> {
   }) async {
     Uri? uri;
     if (filePath != null && filePath.isNotEmpty) {
-      uri = filePath.startsWith('http') ||
+      uri =
+          filePath.startsWith('http') ||
               filePath.startsWith('blob:') ||
               filePath.startsWith('file:')
           ? Uri.parse(filePath)
@@ -380,13 +384,18 @@ class _UploadScreenState extends State<UploadScreen> {
                       TextFormField(
                         controller: _glossCtrl,
                         decoration: InputDecoration(
-                          labelText: 'Gloss *',
-                          hintText: 'The sign word or phrase (e.g. THANK YOU)',
+                          labelText: 'Gloss / Caption *',
+                          hintText:
+                              'Describe the sign and context (e.g. THANK YOU, used when expressing gratitude)',
                           prefixIcon: const Icon(Icons.sign_language),
+                          alignLabelWithHint: true,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
+                        minLines: 3,
+                        maxLines: 6,
+                        textInputAction: TextInputAction.newline,
                         validator: (v) => v!.trim().isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: 18),
