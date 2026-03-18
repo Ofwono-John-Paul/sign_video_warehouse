@@ -123,6 +123,9 @@ class Video(Base):
     sentence_type    = Column(String(50))
     region           = Column(String(50))
     district         = Column(String(100))
+    uploader_latitude  = Column(Float, nullable=True)
+    uploader_longitude = Column(Float, nullable=True)
+    geo_source         = Column(String(50), nullable=True)
     duration         = Column(Float,   default=0)
     file_size_kb     = Column(Float,   default=0)
     verified_status  = Column(String(20), default='pending')
@@ -431,6 +434,9 @@ async def _handle_upload(
     sign_category:   str,
     region:          str,
     district:        str,
+    latitude:        Optional[float],
+    longitude:       Optional[float],
+    geo_source:      str,
     duration:        float,
     user: User,
     db:  Session,
@@ -453,6 +459,11 @@ async def _handle_upload(
             s = db.get(School, user.school_id)
             district = (s.district or '') if s else ''
 
+        resolved_geo_source = (geo_source or '').strip() or (
+            'device_gps' if latitude is not None and longitude is not None
+            else 'declared_region_district'
+        )
+
         video = Video(
             school_id=user.school_id, uploader_id=user.user_id,
             file_path=video_url,
@@ -461,6 +472,9 @@ async def _handle_upload(
             sign_category=sign_category or 'Other',
             sentence_type=sentence_type,
             region=region, district=district,
+            uploader_latitude=latitude,
+            uploader_longitude=longitude,
+            geo_source=resolved_geo_source,
             duration=duration, file_size_kb=size_kb,
             verified_status='pending',
         )
@@ -481,7 +495,10 @@ async def _handle_upload(
             'video_id': video.id,
             'verified_status': 'pending',
             'video_url': video_url,
-            'file_path': video_url}
+            'file_path': video_url,
+            'uploader_latitude': video.uploader_latitude,
+            'uploader_longitude': video.uploader_longitude,
+            'geo_source': resolved_geo_source}
     except Exception as e:
         db.rollback()
         print(f"ERROR in _handle_upload: {type(e).__name__}: {str(e)}")
@@ -501,6 +518,9 @@ async def upload_video(
     sign_category: str = Form(''),
     region:        str = Form(''),
     district:      str = Form(''),
+    latitude:      Optional[float] = Form(None),
+    longitude:     Optional[float] = Form(None),
+    geo_source:    str = Form(''),
     duration:      float = Form(0.0),
     # legacy fields ignored but accepted
     organization:  str = Form(''),
@@ -511,7 +531,8 @@ async def upload_video(
     lang = language or language_variant
     cat  = sign_category or category or 'Other'
     return await _handle_upload(file, gloss_label, lang, sentence_type,
-                                cat, region, district, duration, user, db)
+                                cat, region, district, latitude, longitude,
+                                geo_source, duration, user, db)
 
 
 @app.post('/api/upload-video', status_code=201)
@@ -525,6 +546,9 @@ async def upload_video_alt(
     sign_category: str = Form(''),
     region:        str = Form(''),
     district:      str = Form(''),
+    latitude:      Optional[float] = Form(None),
+    longitude:     Optional[float] = Form(None),
+    geo_source:    str = Form(''),
     duration:      float = Form(0.0),
     organization:  str = Form(''),
     sector:        str = Form(''),
@@ -534,7 +558,8 @@ async def upload_video_alt(
     lang = language or language_variant
     cat  = sign_category or category or 'Other'
     return await _handle_upload(file, gloss_label, lang, sentence_type,
-                                cat, region, district, duration, user, db)
+                                cat, region, district, latitude, longitude,
+                                geo_source, duration, user, db)
 
 
 def _fmt_video(v: Video, db: Session) -> dict:
@@ -550,6 +575,9 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'sentence_type':   v.sentence_type,
         'region':          v.region,
         'district':        v.district,
+        'uploader_latitude': v.uploader_latitude,
+        'uploader_longitude': v.uploader_longitude,
+        'geo_source':      v.geo_source,
         'file_path':       v.file_path,
         'video_url':       v.file_path,
         'file_size_kb':    round(v.file_size_kb or 0, 1),
