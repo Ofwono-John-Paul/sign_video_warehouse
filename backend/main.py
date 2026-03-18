@@ -842,6 +842,12 @@ def admin_regions(user: User = Depends(require_admin), db: Session = Depends(get
 def admin_map_data(user: User = Depends(require_admin), db: Session = Depends(get_db)):
     schools = db.query(School).all()
     h_srvs  = db.query(HealthService).all()
+    videos = db.query(Video)\
+        .filter(Video.uploader_latitude.isnot(None), Video.uploader_longitude.isnot(None))\
+        .order_by(Video.upload_timestamp.desc())\
+        .all()
+
+    school_name_by_id = {s.id: s.name for s in schools}
 
     school_pins = [{
         'id':           s.id,
@@ -867,10 +873,25 @@ def admin_map_data(user: User = Depends(require_admin), db: Session = Depends(ge
         'deaf_friendly': h.deaf_friendly,
     } for h in h_srvs if h.latitude and h.longitude]
 
+    video_source_pins = [{
+        'video_id':         v.id,
+        'gloss_label':      v.gloss_label,
+        'school_id':        v.school_id,
+        'school_name':      school_name_by_id.get(v.school_id) or 'Individual',
+        'region':           v.region,
+        'district':         v.district,
+        'latitude':         v.uploader_latitude,
+        'longitude':        v.uploader_longitude,
+        'geo_source':       v.geo_source or 'unknown',
+        'verified_status':  v.verified_status,
+        'upload_date':      str(v.upload_timestamp)[:10] if v.upload_timestamp else '',
+    } for v in videos]
+
     return {
         'schools': school_pins,
         'health':  health_pins,      # Flutter uses 'health' key
         'health_facilities': health_pins,  # keep legacy key too
+        'video_sources': video_source_pins,
     }
 
 
