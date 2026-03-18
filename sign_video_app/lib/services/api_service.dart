@@ -134,6 +134,9 @@ class ApiService {
     String sector = '',
     String region = '',
     String district = '',
+    double? latitude,
+    double? longitude,
+    String geoSource = '',
   }) async {
     final token = await getToken();
     final request = http.MultipartRequest(
@@ -151,6 +154,15 @@ class ApiService {
     request.fields['sector'] = sector;
     request.fields['region'] = region;
     request.fields['district'] = district;
+    if (latitude != null) {
+      request.fields['latitude'] = latitude.toStringAsFixed(7);
+    }
+    if (longitude != null) {
+      request.fields['longitude'] = longitude.toStringAsFixed(7);
+    }
+    if (geoSource.trim().isNotEmpty) {
+      request.fields['geo_source'] = geoSource.trim();
+    }
 
     if (fileBytes != null) {
       request.files.add(
