@@ -32,6 +32,8 @@
 	<string>This app needs microphone access to include audio in recorded videos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to select videos for upload.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app uses location to geotag submitted videos for source tracking.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

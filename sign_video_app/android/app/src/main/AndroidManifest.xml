@@ -14,6 +14,10 @@
     
     <!-- Camera permission (if you want to record videos directly) -->
     <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Location permissions for optional uploader geotagging -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     
     <application
         android:label="sign_video_app"
