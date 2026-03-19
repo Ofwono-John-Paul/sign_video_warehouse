@@ -281,6 +281,11 @@ def _to_browser_playable_video_url(url: str) -> str:
     if 'res.cloudinary.com' not in (parsed.netloc or '').lower():
         return url
 
+    # Already MP4 delivery; keep as-is so transformation is idempotent.
+    lower_path = (parsed.path or '').lower()
+    if lower_path.endswith('.mp4') and '/video/upload/' in lower_path:
+        return url
+
     segments = [s for s in parsed.path.split('/') if s]
     try:
         upload_idx = segments.index('upload')

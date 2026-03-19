@@ -87,19 +87,56 @@ class ApiService {
         if (search.isNotEmpty) 'search': search,
         if (language.isNotEmpty) 'language': language,
         if (category.isNotEmpty) 'category': category,
+        't': DateTime.now().millisecondsSinceEpoch.toString(),
       },
     );
     final res = await http.get(uri, headers: headers);
-    return {'statusCode': res.statusCode, 'body': jsonDecode(res.body)};
+    final body = jsonDecode(res.body);
+    if (res.statusCode == 200 && body is Map<String, dynamic>) {
+      final videos = body['videos'];
+      if (videos is List) {
+        body['videos'] = videos.map((item) {
+          if (item is! Map) return item;
+          final video = Map<String, dynamic>.from(item.cast<String, dynamic>());
+          final url = getVideoUrl(
+            video['playback_url']?.toString() ??
+                video['video_url']?.toString() ??
+                video['file_path']?.toString(),
+          );
+          if (url.isNotEmpty) {
+            video['playback_url'] = url;
+            video['video_url'] = url;
+          }
+          return video;
+        }).toList();
+      }
+    }
+    return {'statusCode': res.statusCode, 'body': body};
   }
 
   static Future<Map<String, dynamic>> getVideo(int videoId) async {
     final headers = await _authHeaders();
-    final res = await http.get(
-      Uri.parse('$baseUrl/api/videos/$videoId'),
-      headers: headers,
+    final uri = Uri.parse('$baseUrl/api/videos/$videoId').replace(
+      queryParameters: {
+        't': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
     );
-    return {'statusCode': res.statusCode, 'body': jsonDecode(res.body)};
+    final res = await http.get(uri, headers: headers);
+    final body = jsonDecode(res.body);
+    if (res.statusCode == 200 && body is Map<String, dynamic>) {
+      final normalized = Map<String, dynamic>.from(body);
+      final url = getVideoUrl(
+        normalized['playback_url']?.toString() ??
+            normalized['video_url']?.toString() ??
+            normalized['file_path']?.toString(),
+      );
+      if (url.isNotEmpty) {
+        normalized['playback_url'] = url;
+        normalized['video_url'] = url;
+      }
+      return {'statusCode': res.statusCode, 'body': normalized};
+    }
+    return {'statusCode': res.statusCode, 'body': body};
   }
 
   /// Converts a server-side file path to a streamable URL for the phone.
@@ -127,6 +164,11 @@ class ApiService {
     final uri = Uri.tryParse(url);
     if (uri == null || !uri.hasAuthority) return '';
     if (!uri.host.toLowerCase().contains('res.cloudinary.com')) return '';
+
+    final lowerPath = uri.path.toLowerCase();
+    if (lowerPath.endsWith('.mp4') && lowerPath.contains('/video/upload/')) {
+      return url;
+    }
 
     final segments = uri.pathSegments.toList();
     final uploadIndex = segments.indexOf('upload');

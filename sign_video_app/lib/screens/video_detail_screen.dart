@@ -24,11 +24,33 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   Future<void> _initPlayer() async {
-    final url = ApiService.getVideoUrl(
+    var url = ApiService.getVideoUrl(
       widget.video['playback_url']?.toString() ??
           widget.video['video_url']?.toString() ??
           widget.video['file_path']?.toString(),
     );
+
+    final rawId = widget.video['video_id'];
+    final videoId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    if (videoId != null) {
+      try {
+        final res = await ApiService.getVideo(videoId);
+        if (res['statusCode'] == 200 && res['body'] is Map<String, dynamic>) {
+          final fresh = res['body'] as Map<String, dynamic>;
+          final freshUrl = ApiService.getVideoUrl(
+            fresh['playback_url']?.toString() ??
+                fresh['video_url']?.toString() ??
+                fresh['file_path']?.toString(),
+          );
+          if (freshUrl.isNotEmpty) {
+            url = freshUrl;
+          }
+        }
+      } catch (_) {
+        // Keep initial URL as fallback when refresh fails.
+      }
+    }
+
     if (url.isEmpty) {
       setState(() {
         _errorMsg = 'No video file available.';
