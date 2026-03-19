@@ -1,5 +1,9 @@
 fastapi==0.135.1
 uvicorn[standard]==0.41.0
+Flask==3.1.2
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.1.0
+alembic==1.17.2
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 sqlalchemy==2.0.48
