@@ -109,6 +109,8 @@ class ApiService {
 
     // Cloudinary and other remote URLs should be used as-is.
     if (value.startsWith('http://') || value.startsWith('https://')) {
+      final transformed = _toBrowserPlayableCloudinaryUrl(value);
+      if (transformed.isNotEmpty) return transformed;
       return value;
     }
 
@@ -119,6 +121,49 @@ class ApiService {
 
     // Keep other relative URLs untouched for forward compatibility.
     return value;
+  }
+
+  static String _toBrowserPlayableCloudinaryUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasAuthority) return '';
+    if (!uri.host.toLowerCase().contains('res.cloudinary.com')) return '';
+
+    final segments = uri.pathSegments.toList();
+    final uploadIndex = segments.indexOf('upload');
+    if (uploadIndex <= 0 || uploadIndex >= segments.length - 1) return '';
+    if (segments[uploadIndex - 1] != 'video') return '';
+
+    final afterUpload = segments.sublist(uploadIndex + 1);
+    int versionIndex = -1;
+    for (var i = 0; i < afterUpload.length; i++) {
+      if (RegExp(r'^v\d+$').hasMatch(afterUpload[i])) {
+        versionIndex = i;
+        break;
+      }
+    }
+
+    final version = versionIndex >= 0 ? afterUpload[versionIndex] : null;
+    final publicParts = versionIndex >= 0
+        ? afterUpload.sublist(versionIndex + 1)
+        : afterUpload;
+    if (publicParts.isEmpty) return '';
+
+    final normalizedPublicParts = List<String>.from(publicParts);
+    final last = normalizedPublicParts.last;
+    final dot = last.lastIndexOf('.');
+    normalizedPublicParts[normalizedPublicParts.length - 1] =
+        dot > 0 ? last.substring(0, dot) : last;
+    if (normalizedPublicParts.last.isEmpty) return '';
+
+    final out = <String>[
+      ...segments.sublist(0, uploadIndex + 1),
+      'f_mp4,vc_h264,q_auto',
+      if (version != null) version,
+      ...normalizedPublicParts,
+    ];
+    out[out.length - 1] = '${out.last}.mp4';
+
+    return uri.replace(pathSegments: out).toString();
   }
 
   /// Upload a video file with metadata. [filePath] is the local file path.
