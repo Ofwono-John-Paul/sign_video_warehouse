@@ -151,8 +151,9 @@ class ApiService {
     final normalizedPublicParts = List<String>.from(publicParts);
     final last = normalizedPublicParts.last;
     final dot = last.lastIndexOf('.');
-    normalizedPublicParts[normalizedPublicParts.length - 1] =
-        dot > 0 ? last.substring(0, dot) : last;
+    normalizedPublicParts[normalizedPublicParts.length - 1] = dot > 0
+        ? last.substring(0, dot)
+        : last;
     if (normalizedPublicParts.last.isEmpty) return '';
 
     final out = <String>[
