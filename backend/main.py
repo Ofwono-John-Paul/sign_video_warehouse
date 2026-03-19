@@ -2,9 +2,10 @@
 Uganda Sign Language Crowdsourcing Platform  v2.0
 Backend: FastAPI + PostgreSQL (OLTP + DW Hybrid Star Schema)
 """
-import os, math
+import os, math, re
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import cloudinary
 import cloudinary.uploader
@@ -270,6 +271,53 @@ def _is_admin_email(email: str) -> bool:
     local = e.split('@', 1)[0]
     return '.admin' in local
 
+
+def _to_browser_playable_video_url(url: str) -> str:
+    """Return a Cloudinary delivery URL transformed to MP4/H264 for browser playback."""
+    if not url:
+        return ''
+
+    parsed = urlsplit(url)
+    if 'res.cloudinary.com' not in (parsed.netloc or '').lower():
+        return url
+
+    segments = [s for s in parsed.path.split('/') if s]
+    try:
+        upload_idx = segments.index('upload')
+    except ValueError:
+        return url
+
+    if upload_idx < 1 or segments[upload_idx - 1] != 'video':
+        return url
+
+    tail = segments[upload_idx + 1:]
+    if not tail:
+        return url
+
+    version = None
+    version_idx = next((i for i, p in enumerate(tail) if re.fullmatch(r'v\d+', p)), -1)
+    if version_idx >= 0:
+        version = tail[version_idx]
+        public_parts = tail[version_idx + 1:]
+    else:
+        public_parts = tail
+
+    if not public_parts:
+        return url
+
+    public_parts = public_parts.copy()
+    public_parts[-1] = os.path.splitext(public_parts[-1])[0]
+    if not public_parts[-1]:
+        return url
+
+    transformed = segments[:upload_idx + 1] + ['f_mp4,vc_h264,q_auto']
+    if version:
+        transformed.append(version)
+    transformed.extend(public_parts)
+    transformed[-1] = f"{transformed[-1]}.mp4"
+
+    return urlunsplit((parsed.scheme, parsed.netloc, '/' + '/'.join(transformed), parsed.query, parsed.fragment))
+
 #  DW HELPERS
 def _haversine(lat1, lon1, lat2, lon2) -> float:
     R = 6371
@@ -449,6 +497,7 @@ async def _handle_upload(
             folder="usl_videos",
         )
         video_url = upload_result["secure_url"]
+        playback_url = _to_browser_playable_video_url(video_url)
         size_kb   = (upload_result.get("bytes") or 0) / 1024
 
         # If region/district not provided, fall back to school's values
@@ -494,7 +543,8 @@ async def _handle_upload(
         return {'message': 'Video uploaded successfully',
             'video_id': video.id,
             'verified_status': 'pending',
-            'video_url': video_url,
+            'video_url': playback_url,
+            'playback_url': playback_url,
             'file_path': video_url,
             'uploader_latitude': video.uploader_latitude,
             'uploader_longitude': video.uploader_longitude,
@@ -579,7 +629,8 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'uploader_longitude': v.uploader_longitude,
         'geo_source':      v.geo_source,
         'file_path':       v.file_path,
-        'video_url':       v.file_path,
+        'video_url':       _to_browser_playable_video_url(v.file_path),
+        'playback_url':    _to_browser_playable_video_url(v.file_path),
         'file_size_kb':    round(v.file_size_kb or 0, 1),
         'duration':        v.duration,
         'verified_status': v.verified_status,
@@ -628,10 +679,12 @@ def get_video(video_id: int,
         # fallback to legacy DimVideo
         dv = db.get(DimVideo, video_id)
         if dv:
+            playback_url = _to_browser_playable_video_url(dv.file_path)
             return {'video_id': dv.video_id, 'gloss_label': dv.gloss_label,
                     'language': dv.language,
                     'file_path': dv.file_path,
-                    'video_url': dv.file_path,
+                'video_url': playback_url,
+                'playback_url': playback_url,
                     'verified_status': 'approved'}
         raise HTTPException(404, detail='Video not found')
     return _fmt_video(v, db)
@@ -931,6 +984,7 @@ def admin_videos(
 
     def _row(v: Video):
         school = db.get(School, v.school_id) if v.school_id else None
+        playback_url = _to_browser_playable_video_url(v.file_path)
         return {
             'video_id':       v.id,
             'gloss_label':    v.gloss_label,
@@ -939,7 +993,8 @@ def admin_videos(
             'region':         v.region,
             'district':       v.district,
             'file_path':      v.file_path,
-            'video_url':      v.file_path,
+            'video_url':      playback_url,
+            'playback_url':   playback_url,
             'file_size_kb':   v.file_size_kb,
             'verified_status': v.verified_status,
             'upload_date':    str(v.upload_timestamp)[:10] if v.upload_timestamp else '',
