@@ -526,7 +526,7 @@ class _UploadScreenState extends State<UploadScreen> {
                             : const Icon(Icons.my_location),
                         label: Text(
                           _latitude == null || _longitude == null
-                              ? 'Capture Current Location (Optional)'
+                              ? 'Capture Current Location'
                               : 'Refresh Location',
                         ),
                       ),
