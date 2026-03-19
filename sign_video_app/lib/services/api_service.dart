@@ -117,9 +117,7 @@ class ApiService {
   static Future<Map<String, dynamic>> getVideo(int videoId) async {
     final headers = await _authHeaders();
     final uri = Uri.parse('$baseUrl/api/videos/$videoId').replace(
-      queryParameters: {
-        't': DateTime.now().millisecondsSinceEpoch.toString(),
-      },
+      queryParameters: {'t': DateTime.now().millisecondsSinceEpoch.toString()},
     );
     final res = await http.get(uri, headers: headers);
     final body = jsonDecode(res.body);

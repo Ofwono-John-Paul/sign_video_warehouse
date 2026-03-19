@@ -31,7 +31,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     );
 
     final rawId = widget.video['video_id'];
-    final videoId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    final videoId = rawId is int
+        ? rawId
+        : int.tryParse(rawId?.toString() ?? '');
     if (videoId != null) {
       try {
         final res = await ApiService.getVideo(videoId);
