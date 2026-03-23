@@ -1,72 +1,117 @@
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+
 import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
+
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabs;
+class _AdminDashboardState extends State<AdminDashboard> {
+  static const _regions = ['All', 'Central', 'Western', 'Eastern', 'Northern'];
+  static const _chartColors = [
+    Color(0xFF1565C0),
+    Color(0xFF2E7D32),
+    Color(0xFFE65100),
+    Color(0xFF6A1B9A),
+    Color(0xFF00838F),
+    Color(0xFFF57F17),
+    Color(0xFFC62828),
+    Color(0xFF455A64),
+  ];
+
+  final _dateFormat = DateFormat('MMM d, y');
+
   bool _loading = true;
+  int _selectedIndex = 0;
 
   Map<String, dynamic> _overview = {};
-  List<dynamic> _regions = [];
+  Map<String, dynamic> _schoolAnalytics = {};
   Map<String, dynamic> _mapData = {};
   List<dynamic> _schools = [];
   List<dynamic> _videos = [];
 
-  static const _regionColors = {
-    'Central': Color(0xFF1565C0),
-    'Western': Color(0xFF2E7D32),
-    'Eastern': Color(0xFFE65100),
-    'Northern': Color(0xFF6A1B9A),
-  };
+  String _selectedRegion = 'All';
+  int? _selectedSchoolId;
+  DateTimeRange? _dateRange;
+  String _granularity = 'month';
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
     _load();
   }
 
-  @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
     try {
-      final [ov, rg, mp, sc, vd] = await Future.wait([
-        ApiService.getAdminOverview(),
-        ApiService.getAdminRegions(),
+      final results = await Future.wait([
+        ApiService.getAdminOverview(
+          region: _selectedRegion == 'All' ? '' : _selectedRegion,
+          schoolId: _selectedSchoolId,
+          startDate: _startDate,
+          endDate: _endDate,
+          granularity: _granularity,
+        ),
+        ApiService.getAdminSchoolAnalytics(
+          region: _selectedRegion == 'All' ? '' : _selectedRegion,
+          schoolId: _selectedSchoolId,
+          startDate: _startDate,
+          endDate: _endDate,
+          granularity: _granularity,
+        ),
         ApiService.getMapData(),
         ApiService.getAdminSchools(),
         ApiService.getVideos(),
       ]);
+
       if (!mounted) return;
       setState(() {
-        _overview = (ov['body'] as Map?)?.cast<String, dynamic>() ?? {};
-        _regions = (rg['body']['regions'] as List?) ?? [];
-        _mapData = (mp['body'] as Map?)?.cast<String, dynamic>() ?? {};
-        _schools = (sc['body']['schools'] as List?) ?? [];
-        final raw = (vd['body'] as Map?) ?? {};
-        _videos = (raw['videos'] as List?) ?? [];
+        _overview = _mapBody(results[0]);
+        _schoolAnalytics = _mapBody(results[1]);
+        _mapData = _mapBody(results[2]);
+        _schools = _listBody(results[3], 'schools');
+        _videos = _listBody(results[4], 'videos');
       });
-    } catch (e) {
-      debugPrint('Admin load error: $e');
+    } catch (error) {
+      debugPrint('Admin dashboard load error: $error');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
+  }
+
+  Map<String, dynamic> _mapBody(dynamic response) {
+    final body = (response as Map?)?['body'];
+    if (body is Map<String, dynamic>) {
+      return body;
+    }
+    if (body is Map) {
+      return Map<String, dynamic>.from(body.cast<String, dynamic>());
+    }
+    return {};
+  }
+
+  List<dynamic> _listBody(dynamic response, String key) {
+    final body = (response as Map?)?['body'];
+    if (body is Map) {
+      final raw = body[key];
+      if (raw is List) {
+        return raw;
+      }
+    }
+    return const [];
   }
 
   Future<void> _logout() async {
@@ -78,305 +123,475 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
+  String get _startDate {
+    if (_dateRange == null) return '';
+    return DateFormat('yyyy-MM-dd').format(_dateRange!.start);
+  }
+
+  String get _endDate {
+    if (_dateRange == null) return '';
+    return DateFormat('yyyy-MM-dd').format(_dateRange!.end);
+  }
+
+  List<Map<String, dynamic>> get _schoolsTyped {
+    return _schools
+        .map((school) => Map<String, dynamic>.from(school as Map))
+        .toList();
+  }
+
+  List<Map<String, dynamic>> get _videosTyped {
+    return _videos
+        .map((video) => Map<String, dynamic>.from(video as Map))
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _asTypedList(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .toList();
+  }
+
+  Map<String, dynamic> _asTypedMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map)
+      return Map<String, dynamic>.from(value.cast<String, dynamic>());
+    return {};
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _safeText(dynamic value, {String fallback = 'Unknown'}) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _dateRange = picked);
+    await _load();
+  }
+
+  Future<void> _clearFilters() async {
+    setState(() {
+      _selectedRegion = 'All';
+      _selectedSchoolId = null;
+      _dateRange = null;
+      _granularity = 'month';
+    });
+    await _load();
+  }
+
+  Future<void> _setRegion(String? value) async {
+    setState(() {
+      _selectedRegion = value ?? 'All';
+      final filteredSchools = _filteredSchoolOptions();
+      if (_selectedSchoolId != null &&
+          filteredSchools.every(
+            (school) => school['id'] != _selectedSchoolId,
+          )) {
+        _selectedSchoolId = null;
+      }
+    });
+    await _load();
+  }
+
+  Future<void> _setSchool(int? value) async {
+    setState(() => _selectedSchoolId = value);
+    await _load();
+  }
+
+  Future<void> _setGranularity(String value) async {
+    if (_granularity == value) return;
+    setState(() => _granularity = value);
+    await _load();
+  }
+
+  List<Map<String, dynamic>> _filteredSchoolOptions() {
+    final schools = _schoolsTyped;
+    if (_selectedRegion == 'All') return schools;
+    return schools
+        .where((school) => school['region']?.toString() == _selectedRegion)
+        .toList();
+  }
+
+  String get _currentTitle {
+    switch (_selectedIndex) {
+      case 1:
+        return 'Schools Analytics';
+      case 2:
+        return 'Maps';
+      case 3:
+        return 'Videos';
+      default:
+        return 'Overview Analytics';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        backgroundColor: cs.primary,
-        foregroundColor: cs.onPrimary,
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
-        ],
-        bottom: TabBar(
-          controller: _tabs,
-          labelColor: cs.onPrimary,
-          unselectedLabelColor: cs.onPrimary.withValues(alpha: 0.6),
-          indicatorColor: cs.onPrimary,
-          isScrollable: true,
-          tabs: const [
-            Tab(icon: Icon(Icons.insights), text: 'Overview'),
-            Tab(icon: Icon(Icons.map), text: 'Map'),
-            Tab(icon: Icon(Icons.school), text: 'Schools'),
-            Tab(icon: Icon(Icons.video_library), text: 'Videos'),
-          ],
-        ),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabs,
-              children: [
-                _overviewTab(cs),
-                _mapTab(cs),
-                _schoolsTab(cs),
-                _videosTab(cs),
-              ],
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 1080;
+        final body = _loading
+            ? const Center(child: CircularProgressIndicator())
+            : IndexedStack(
+                index: _selectedIndex,
+                children: [
+                  _buildOverviewPage(cs),
+                  _buildSchoolsPage(cs),
+                  _buildMapPage(cs),
+                  _buildVideosPage(cs),
+                ],
+              );
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(_currentTitle),
+            backgroundColor: cs.primary,
+            foregroundColor: cs.onPrimary,
+            actions: [
+              IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+              IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+            ],
+          ),
+          drawer: isWide
+              ? null
+              : Drawer(child: SafeArea(child: _buildDrawer(cs))),
+          body: ColoredBox(
+            color: const Color(0xFFF5F7FB),
+            child: isWide
+                ? Row(
+                    children: [
+                      _buildRail(cs),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: body),
+                    ],
+                  )
+                : body,
+          ),
+        );
+      },
     );
   }
 
-  // ── Overview ───────────────────────────────────────────────────────────────
-  Widget _overviewTab(ColorScheme cs) {
-    final total = _overview['total_videos'] ?? 0;
-    final approved = _overview['approved'] ?? 0;
-    final pending = _overview['pending'] ?? 0;
-    final schools = _overview['total_schools'] ?? 0;
-    final cats = (_overview['by_category'] as List?) ?? [];
-    final topUploaders = (_overview['top_uploaders'] as List?) ?? [];
-    final topSigns = (_overview['top_signs'] as List?) ?? [];
+  Widget _buildRail(ColorScheme cs) {
+    return NavigationRail(
+      selectedIndex: _selectedIndex,
+      onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+      labelType: NavigationRailLabelType.all,
+      extended: true,
+      backgroundColor: cs.surface,
+      leading: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'USL Admin',
+              style: TextStyle(
+                color: cs.primary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Crowdsource analytics',
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      destinations: const [
+        NavigationRailDestination(
+          icon: Icon(Icons.insights_outlined),
+          selectedIcon: Icon(Icons.insights),
+          label: Text('Overview'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.school_outlined),
+          selectedIcon: Icon(Icons.school),
+          label: Text('Schools'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.map_outlined),
+          selectedIcon: Icon(Icons.map),
+          label: Text('Maps'),
+        ),
+        NavigationRailDestination(
+          icon: Icon(Icons.video_library_outlined),
+          selectedIcon: Icon(Icons.video_library),
+          label: Text('Videos'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDrawer(ColorScheme cs) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      children: [
+        ListTile(
+          title: Text(
+            'USL Admin',
+            style: TextStyle(fontWeight: FontWeight.w800, color: cs.primary),
+          ),
+          subtitle: const Text('Crowdsource analytics'),
+        ),
+        const Divider(),
+        _drawerItem(Icons.insights, 'Overview', 0),
+        _drawerItem(Icons.school, 'Schools', 1),
+        _drawerItem(Icons.map, 'Maps', 2),
+        _drawerItem(Icons.video_library, 'Videos', 3),
+      ],
+    );
+  }
+
+  Widget _drawerItem(IconData icon, String label, int index) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      selected: _selectedIndex == index,
+      onTap: () {
+        setState(() => _selectedIndex = index);
+        Navigator.of(context).pop();
+      },
+    );
+  }
+
+  Widget _buildOverviewPage(ColorScheme cs) {
+    final schoolsPerRegion = _asTypedList(_overview['schools_per_region']);
+    final uploadsByRegion = _asTypedList(_overview['uploads_by_region']);
+    final duplicateSigns = _asTypedList(_overview['duplicate_signs']);
+    final duplicateMatrix = _asTypedList(_overview['duplicate_matrix']);
+    final topSigns = _asTypedList(_overview['top_signs']);
+    final trend = _asTypedList(_overview['upload_trend']);
+
+    final kpis = _asTypedMap(_overview['kpis']);
+    final totalSchools = _toInt(
+      kpis['total_schools'] ?? _overview['total_schools'],
+    );
+    final totalRegions = _toInt(
+      kpis['total_regions'] ?? _overview['total_regions'],
+    );
+    final totalVideos = _toInt(
+      kpis['total_videos'] ?? _overview['total_videos'],
+    );
+    final totalUploads = _toInt(
+      kpis['total_uploads'] ?? _overview['total_uploads'],
+    );
+
+    final mostActiveRegion = _asTypedMap(
+      kpis['most_active_region'] ?? _overview['most_active_region'],
+    );
+    final mostActiveSchool = _asTypedMap(
+      kpis['most_active_school'] ?? _overview['most_active_school'],
+    );
 
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         children: [
-          // KPI grid
-          GridView.count(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 1.8,
-            children: [
-              _kpi(
-                'Total Videos',
-                total.toString(),
-                Icons.video_library,
-                cs.primary,
-              ),
-              _kpi(
-                'Approved',
-                approved.toString(),
-                Icons.verified,
-                Colors.green,
-              ),
-              _kpi(
-                'Pending',
-                pending.toString(),
-                Icons.hourglass_top,
-                Colors.orange,
-              ),
-              _kpi(
-                'Schools',
-                schools.toString(),
-                Icons.school,
-                const Color(0xFF6A1B9A),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // Region bar chart
-          if (_regions.isNotEmpty) ...[
-            _sectionTitle('Uploads by Region'),
-            SizedBox(
-              height: 180,
-              child: BarChart(
-                BarChartData(
-                  barGroups: _regions.asMap().entries.map((e) {
-                    final r = e.value as Map;
-                    final region = r['region'] as String? ?? '';
-                    return BarChartGroupData(
-                      x: e.key,
-                      barRods: [
-                        BarChartRodData(
-                          toY: (r['total'] as num).toDouble(),
-                          color: _regionColors[region] ?? cs.primary,
-                          width: 28,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                  titlesData: FlTitlesData(
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 28,
-                        getTitlesWidget: (v, _) {
-                          final idx = v.toInt();
-                          if (idx < 0 || idx >= _regions.length) {
-                            return const SizedBox.shrink();
-                          }
-                          final region =
-                              (_regions[idx]['region'] as String?) ?? '';
-                          return Transform.rotate(
-                            angle: -0.5,
-                            child: Text(
-                              region,
-                              style: const TextStyle(fontSize: 9),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 30,
-                      ),
-                    ),
-                    rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+          _buildFilterStrip(cs),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1000 ? 3 : 2;
+              return GridView.count(
+                crossAxisCount: columns,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: constraints.maxWidth >= 1000 ? 2.5 : 2.0,
+                children: [
+                  _kpiCard(
+                    'Total Schools',
+                    totalSchools.toString(),
+                    Icons.school,
+                    const Color(0xFF1565C0),
                   ),
-                  gridData: const FlGridData(show: true),
-                  borderData: FlBorderData(show: false),
-                ),
+                  _kpiCard(
+                    'Total Regions',
+                    totalRegions.toString(),
+                    Icons.public,
+                    const Color(0xFF2E7D32),
+                  ),
+                  _kpiCard(
+                    'Total Videos',
+                    totalVideos.toString(),
+                    Icons.video_library,
+                    const Color(0xFFE65100),
+                  ),
+                  _kpiCard(
+                    'Total Uploads',
+                    totalUploads.toString(),
+                    Icons.cloud_upload,
+                    const Color(0xFF6A1B9A),
+                  ),
+                  _kpiCard(
+                    'Most Active Region',
+                    _safeText(mostActiveRegion['region'], fallback: 'N/A'),
+                    Icons.location_on,
+                    const Color(0xFF00838F),
+                    subtitle: '${_toInt(mostActiveRegion['uploads'])} uploads',
+                  ),
+                  _kpiCard(
+                    'Most Active School',
+                    _safeText(mostActiveSchool['school_name'], fallback: 'N/A'),
+                    Icons.workspace_premium,
+                    const Color(0xFFF57F17),
+                    subtitle: '${_toInt(mostActiveSchool['uploads'])} uploads',
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 18),
+          _chartGrid([
+            _chartCard(
+              'Schools Distribution by Region',
+              child: _simpleBarChart(
+                schoolsPerRegion,
+                valueKey: 'count',
+                labelKey: 'region',
+                barColor: const Color(0xFF1565C0),
               ),
             ),
-            const SizedBox(height: 20),
-          ],
-          // Category pie chart
-          if (cats.isNotEmpty) ...[
-            _sectionTitle('By Category'),
-            SizedBox(
-              height: 200,
-              child: PieChart(
-                PieChartData(
-                  sections: cats.asMap().entries.map((e) {
-                    final colors = [
-                      const Color(0xFF1565C0),
-                      const Color(0xFF2E7D32),
-                      const Color(0xFFE65100),
-                      const Color(0xFF6A1B9A),
-                      const Color(0xFF00838F),
-                      const Color(0xFFF57F17),
-                    ];
-                    final d = e.value as Map;
-                    return PieChartSectionData(
-                      value: (d['count'] as num).toDouble(),
-                      title: '${d['sign_category']}\n${d['count']}',
-                      color: colors[e.key % colors.length],
-                      radius: 75,
-                      titleStyle: const TextStyle(
-                        fontSize: 9,
-                        color: Colors.white,
-                      ),
-                    );
-                  }).toList(),
-                  sectionsSpace: 2,
-                ),
+            _chartCard(
+              'Upload Activity by Region',
+              child: _simpleBarChart(
+                uploadsByRegion,
+                valueKey: 'uploads',
+                labelKey: 'region',
+                barColor: const Color(0xFF2E7D32),
+                showTopHighlight: true,
               ),
             ),
-          ],
-          if (topUploaders.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            _sectionTitle('Top Uploaders (All Sources)'),
-            Card(
-              elevation: 1,
-              child: Column(
-                children: topUploaders.take(8).map((u) {
-                  final row = u as Map<String, dynamic>;
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 15,
-                      backgroundColor: cs.primaryContainer,
-                      child: Icon(Icons.person, color: cs.primary, size: 16),
-                    ),
-                    title: Text(row['username']?.toString() ?? ''),
-                    subtitle: Text(
-                      '${row['email'] ?? ''} · ${row['school_name'] ?? 'Individual'} · ${row['role'] ?? 'SCHOOL_USER'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: Text(
-                      '${row['uploads'] ?? 0}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: cs.primary,
-                      ),
-                    ),
-                  );
-                }).toList(),
+            _chartCard(
+              'Upload Trends Over Time',
+              child: _lineChart(
+                trend,
+                valueKey: 'uploads',
+                labelKey: 'period',
+                lineColor: const Color(0xFF6A1B9A),
               ),
             ),
-          ],
-          if (topSigns.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            _sectionTitle('Most Uploaded Signs'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: topSigns.take(12).map((s) {
-                final row = s as Map<String, dynamic>;
-                return Chip(
-                  label: Text('${row['gloss_label']} (${row['uploads']})'),
-                );
-              }).toList(),
+            _chartCard(
+              'Most Uploaded Signs',
+              height: 360,
+              child: _horizontalBarChart(
+                topSigns,
+                valueKey: 'uploads',
+                labelKey: 'gloss_label',
+                barColor: const Color(0xFFE65100),
+              ),
             ),
-          ],
+          ]),
+          const SizedBox(height: 18),
+          _chartCard(
+            'Duplicate Sign Upload Detection',
+            height: 420,
+            child: _duplicateSection(duplicateSigns, duplicateMatrix),
+          ),
         ],
       ),
     );
   }
 
-  Widget _kpi(String label, String val, IconData icon, Color color) => Card(
-    elevation: 2,
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
+  Widget _buildSchoolsPage(ColorScheme cs) {
+    final uploadsPerSchool = _asTypedList(
+      _schoolAnalytics['uploads_per_school'],
+    );
+    final contributionByRegion = _asTypedList(
+      _schoolAnalytics['school_contribution_by_region'],
+    );
+    final activityTimeline = _asTypedList(
+      _schoolAnalytics['activity_timeline'],
+    );
+    final topSchools = _asTypedList(_schoolAnalytics['top_performing_schools']);
+    final avgFrequency = _asTypedList(
+      _schoolAnalytics['average_upload_frequency'],
+    );
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(18),
         children: [
-          Icon(icon, color: color, size: 30),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  val,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              ],
+          _buildFilterStrip(cs),
+          const SizedBox(height: 18),
+          _chartGrid([
+            _chartCard(
+              'Uploads per School',
+              child: _simpleBarChart(
+                uploadsPerSchool,
+                valueKey: 'uploads',
+                labelKey: 'school_name',
+                barColor: const Color(0xFF1565C0),
+              ),
             ),
+            _chartCard(
+              'School Contribution by Region',
+              child: _stackedRegionChart(contributionByRegion),
+            ),
+            _chartCard(
+              'Upload Activity Timeline per School',
+              child: _multiSeriesLineChart(activityTimeline),
+            ),
+            _chartCard(
+              'Average Upload Frequency',
+              child: _scatterFrequencyChart(avgFrequency),
+            ),
+          ]),
+          const SizedBox(height: 18),
+          _chartCard(
+            'Top Performing Schools',
+            height: 420,
+            child: _leaderboardTable(topSchools),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
 
-  Widget _sectionTitle(String t) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      t,
-      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-    ),
-  );
-
-  // ── Map tab ────────────────────────────────────────────────────────────────
-  Widget _mapTab(ColorScheme cs) {
+  Widget _buildMapPage(ColorScheme cs) {
     final schoolPins = (_mapData['schools'] as List?) ?? [];
     final healthPins = (_mapData['health'] as List?) ?? [];
     final videoSourcePins = (_mapData['video_sources'] as List?) ?? [];
 
     return Column(
       children: [
-        // Legend
         Container(
           color: cs.surface,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
             children: [
               _legendDot(Colors.blue, 'Schools'),
-              const SizedBox(width: 16),
               _legendDot(Colors.teal, 'Video Sources'),
-              const SizedBox(width: 16),
               _legendDot(Colors.red, 'Health Facilities'),
             ],
           ),
@@ -384,7 +599,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         Expanded(
           child: FlutterMap(
             options: const MapOptions(
-              initialCenter: LatLng(1.3733, 32.2903), // Uganda center
+              initialCenter: LatLng(1.3733, 32.2903),
               initialZoom: 7,
             ),
             children: [
@@ -394,9 +609,9 @@ class _AdminDashboardState extends State<AdminDashboard>
               ),
               MarkerLayer(
                 markers: [
-                  ...schoolPins.map((s) {
-                    final lat = (s['latitude'] as num?)?.toDouble();
-                    final lng = (s['longitude'] as num?)?.toDouble();
+                  ...schoolPins.map((school) {
+                    final lat = (school['latitude'] as num?)?.toDouble();
+                    final lng = (school['longitude'] as num?)?.toDouble();
                     if (lat == null || lng == null || lat == 0 || lng == 0) {
                       return null;
                     }
@@ -406,8 +621,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                       height: 20,
                       child: GestureDetector(
                         onTap: () => _showPin(
-                          s['name'],
-                          '${s['district']} · ${s['total_uploads'] ?? 0} uploads',
+                          school['name'],
+                          '${school['district']} · ${school['total_uploads'] ?? 0} uploads',
                         ),
                         child: Container(
                           decoration: BoxDecoration(
@@ -426,9 +641,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                       ),
                     );
                   }).whereType<Marker>(),
-                  ...videoSourcePins.map((v) {
-                    final lat = (v['latitude'] as num?)?.toDouble();
-                    final lng = (v['longitude'] as num?)?.toDouble();
+                  ...videoSourcePins.map((video) {
+                    final lat = (video['latitude'] as num?)?.toDouble();
+                    final lng = (video['longitude'] as num?)?.toDouble();
                     if (lat == null || lng == null || lat == 0 || lng == 0) {
                       return null;
                     }
@@ -437,7 +652,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                       width: 34,
                       height: 34,
                       child: GestureDetector(
-                        onTap: () => _showVideoSourcePin(v),
+                        onTap: () => _showVideoSourcePin(video),
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.teal,
@@ -460,9 +675,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                       ),
                     );
                   }).whereType<Marker>(),
-                  ...healthPins.map((h) {
-                    final lat = (h['latitude'] as num?)?.toDouble();
-                    final lng = (h['longitude'] as num?)?.toDouble();
+                  ...healthPins.map((health) {
+                    final lat = (health['latitude'] as num?)?.toDouble();
+                    final lng = (health['longitude'] as num?)?.toDouble();
                     if (lat == null || lng == null || lat == 0 || lng == 0) {
                       return null;
                     }
@@ -471,7 +686,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                       width: 26,
                       height: 26,
                       child: GestureDetector(
-                        onTap: () => _showPin(h['name'], h['facility_type']),
+                        onTap: () =>
+                            _showPin(health['name'], health['facility_type']),
                         child: const Icon(
                           Icons.local_hospital,
                           color: Colors.red,
@@ -489,6 +705,996 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
+  Widget _buildVideosPage(ColorScheme cs) {
+    if (_videosTyped.isEmpty) {
+      return const Center(child: Text('No videos yet.'));
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: _videosTyped.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (_, index) {
+          final video = _videosTyped[index];
+          final status = video['verified_status']?.toString() ?? 'pending';
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: cs.primaryContainer,
+              child: Icon(Icons.sign_language, color: cs.primary, size: 20),
+            ),
+            title: Text(
+              video['gloss_label']?.toString() ?? 'Untitled',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              '${video['school_name'] ?? 'Individual'} · ${video['sign_category'] ?? 'General'}',
+            ),
+            trailing: status == 'pending'
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                        ),
+                        onPressed: () =>
+                            _verify(video['video_id'] as int, 'approved'),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.cancel, color: Colors.red),
+                        onPressed: () =>
+                            _verify(video['video_id'] as int, 'rejected'),
+                      ),
+                    ],
+                  )
+                : Chip(
+                    label: Text(
+                      status,
+                      style: const TextStyle(fontSize: 10, color: Colors.white),
+                    ),
+                    backgroundColor: status == 'approved'
+                        ? Colors.green
+                        : Colors.red,
+                    padding: EdgeInsets.zero,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => VideoDetailScreen(video: video),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFilterStrip(ColorScheme cs) {
+    final schools = _filteredSchoolOptions();
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 760;
+            if (isCompact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: _selectedRegion,
+                    decoration: const InputDecoration(labelText: 'Region'),
+                    isExpanded: true,
+                    items: _regions
+                        .map(
+                          (region) => DropdownMenuItem(
+                            value: region,
+                            child: Text(
+                              region,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: _setRegion,
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int?>(
+                    value: _selectedSchoolId,
+                    decoration: const InputDecoration(labelText: 'School'),
+                    isExpanded: true,
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text(
+                          'All schools',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      ...schools.map(
+                        (school) => DropdownMenuItem<int?>(
+                          value: _toInt(school['id']),
+                          child: Text(
+                            '${school['name']} · ${school['region']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: _setSchool,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _pickDateRange,
+                    icon: const Icon(Icons.date_range),
+                    label: Text(
+                      _dateRange == null
+                          ? 'Date range'
+                          : '${_dateFormat.format(_dateRange!.start)} - ${_dateFormat.format(_dateRange!.end)}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _granularity,
+                    decoration: const InputDecoration(
+                      labelText: 'Trend granularity',
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'day', child: Text('Daily')),
+                      DropdownMenuItem(value: 'week', child: Text('Weekly')),
+                      DropdownMenuItem(value: 'month', child: Text('Monthly')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        _setGranularity(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: _clearFilters,
+                    icon: const Icon(Icons.clear),
+                    label: const Text('Reset filters'),
+                  ),
+                ],
+              );
+            }
+
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedRegion,
+                    decoration: const InputDecoration(labelText: 'Region'),
+                    isExpanded: true,
+                    items: _regions
+                        .map(
+                          (region) => DropdownMenuItem(
+                            value: region,
+                            child: Text(
+                              region,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: _setRegion,
+                  ),
+                ),
+                SizedBox(
+                  width: 280,
+                  child: DropdownButtonFormField<int?>(
+                    value: _selectedSchoolId,
+                    decoration: const InputDecoration(labelText: 'School'),
+                    isExpanded: true,
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text(
+                          'All schools',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      ...schools.map(
+                        (school) => DropdownMenuItem<int?>(
+                          value: _toInt(school['id']),
+                          child: Text(
+                            '${school['name']} · ${school['region']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: _setSchool,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _pickDateRange,
+                  icon: const Icon(Icons.date_range),
+                  label: Text(
+                    _dateRange == null
+                        ? 'Date range'
+                        : '${_dateFormat.format(_dateRange!.start)} - ${_dateFormat.format(_dateRange!.end)}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'day', label: Text('Daily')),
+                    ButtonSegment(value: 'week', label: Text('Weekly')),
+                    ButtonSegment(value: 'month', label: Text('Monthly')),
+                  ],
+                  selected: {_granularity},
+                  onSelectionChanged: (selection) =>
+                      _setGranularity(selection.first),
+                ),
+                TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Reset filters'),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _kpiCard(
+    String label,
+    String value,
+    IconData icon,
+    Color color, {
+    String? subtitle,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            color.withValues(alpha: 0.95),
+            color.withValues(alpha: 0.78),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: Colors.white, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chartGrid(List<Widget> cards) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final twoColumns = constraints.maxWidth >= 980;
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: cards.map((card) {
+            return SizedBox(
+              width: twoColumns
+                  ? (constraints.maxWidth - 16) / 2
+                  : constraints.maxWidth,
+              child: card,
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _chartCard(
+    String title, {
+    required Widget child,
+    double height = 320,
+  }) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(height: height, child: child),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _simpleBarChart(
+    List<Map<String, dynamic>> data, {
+    required String valueKey,
+    required String labelKey,
+    required Color barColor,
+    bool showTopHighlight = false,
+  }) {
+    if (data.isEmpty) {
+      return const Center(child: Text('No data available'));
+    }
+    final maxValue = data
+        .map((item) => _toDouble(item[valueKey]))
+        .fold<double>(
+          0,
+          (previous, value) => value > previous ? value : previous,
+        );
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        barGroups: data.asMap().entries.map((entry) {
+          final index = entry.key;
+          final row = entry.value;
+          final value = _toDouble(row[valueKey]);
+          final isTop = showTopHighlight && index == 0;
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                width: 18,
+                borderRadius: BorderRadius.circular(6),
+                color: isTop ? const Color(0xFFF57F17) : barColor,
+              ),
+            ],
+          );
+        }).toList(),
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 34),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= data.length) {
+                  return const SizedBox.shrink();
+                }
+                final label = _safeText(
+                  data[index][labelKey],
+                  fallback: 'Unknown',
+                );
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 10,
+                  child: Transform.rotate(
+                    angle: -0.5,
+                    child: SizedBox(
+                      width: 72,
+                      child: Text(
+                        label,
+                        maxLines: 2,
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        maxY: maxValue <= 0 ? 1 : maxValue * 1.2,
+      ),
+    );
+  }
+
+  Widget _horizontalBarChart(
+    List<Map<String, dynamic>> data, {
+    required String valueKey,
+    required String labelKey,
+    required Color barColor,
+  }) {
+    if (data.isEmpty) {
+      return const Center(child: Text('No data available'));
+    }
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        barGroups: data.asMap().entries.map((entry) {
+          final value = _toDouble(entry.value[valueKey]);
+          return BarChartGroupData(
+            x: entry.key,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                width: 18,
+                borderRadius: BorderRadius.circular(6),
+                color: barColor,
+              ),
+            ],
+          );
+        }).toList(),
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 96,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= data.length) {
+                  return const SizedBox.shrink();
+                }
+                final label = _safeText(
+                  data[index][labelKey],
+                  fallback: 'Unknown',
+                );
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 8,
+                  child: SizedBox(
+                    width: 88,
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _lineChart(
+    List<Map<String, dynamic>> data, {
+    required String valueKey,
+    required String labelKey,
+    required Color lineColor,
+  }) {
+    if (data.isEmpty) {
+      return const Center(child: Text('No trend data available'));
+    }
+    final spots = data.asMap().entries.map((entry) {
+      return FlSpot(entry.key.toDouble(), _toDouble(entry.value[valueKey]));
+    }).toList();
+    return LineChart(
+      LineChartData(
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: lineColor,
+            barWidth: 3,
+            belowBarData: BarAreaData(
+              show: true,
+              color: lineColor.withValues(alpha: 0.12),
+            ),
+            dotData: const FlDotData(show: false),
+          ),
+        ],
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 36),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= data.length) {
+                  return const SizedBox.shrink();
+                }
+                final label = _safeText(data[index][labelKey], fallback: '');
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 8,
+                  child: Text(label, style: const TextStyle(fontSize: 10)),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _multiSeriesLineChart(List<Map<String, dynamic>> seriesData) {
+    if (seriesData.isEmpty) {
+      return const Center(child: Text('No timeline data available'));
+    }
+
+    final allLabels = <String>{};
+    for (final series in seriesData) {
+      for (final point in (series['points'] as List? ?? const [])) {
+        if (point is Map) {
+          allLabels.add(point['period']?.toString() ?? '');
+        }
+      }
+    }
+    final labels = allLabels.where((label) => label.isNotEmpty).toList()
+      ..sort();
+    final labelIndex = {for (var i = 0; i < labels.length; i++) labels[i]: i};
+
+    return LineChart(
+      LineChartData(
+        lineBarsData: seriesData.asMap().entries.map((entry) {
+          final color = _chartColors[entry.key % _chartColors.length];
+          final series = Map<String, dynamic>.from(entry.value);
+          final points = (series['points'] as List? ?? const [])
+              .whereType<Map>()
+              .toList();
+          final spots = points.map((point) {
+            final x =
+                labelIndex[point['period']?.toString() ?? '']?.toDouble() ?? 0;
+            final y = _toDouble(point['uploads']);
+            return FlSpot(x, y);
+          }).toList();
+          return LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: color,
+            barWidth: 2.5,
+            dotData: const FlDotData(show: false),
+          );
+        }).toList(),
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 36),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              getTitlesWidget: (value, meta) {
+                final index = value.toInt();
+                if (index < 0 || index >= labels.length) {
+                  return const SizedBox.shrink();
+                }
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 8,
+                  child: Text(
+                    labels[index],
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _stackedRegionChart(List<Map<String, dynamic>> regions) {
+    if (regions.isEmpty) {
+      return const Center(child: Text('No contribution data available'));
+    }
+
+    final topSchools = <String>[];
+    for (final region in regions) {
+      final schools = (region['schools'] as List? ?? const [])
+          .whereType<Map>()
+          .toList();
+      for (final school in schools) {
+        final name = school['school_name']?.toString() ?? '';
+        if (name.isNotEmpty && !topSchools.contains(name)) {
+          topSchools.add(name);
+        }
+        if (topSchools.length >= 4) break;
+      }
+      if (topSchools.length >= 4) break;
+    }
+
+    if (topSchools.isEmpty) {
+      return const Center(child: Text('No school breakdown available'));
+    }
+
+    final groups = regions.asMap().entries.map((entry) {
+      final region = Map<String, dynamic>.from(entry.value);
+      final schools = (region['schools'] as List? ?? const [])
+          .whereType<Map>()
+          .toList();
+      final lookup = {
+        for (final school in schools)
+          school['school_name']?.toString() ?? '': _toDouble(school['uploads']),
+      };
+      double start = 0;
+      final stackItems = <BarChartRodStackItem>[];
+      for (final schoolName in topSchools) {
+        final uploads = lookup[schoolName] ?? 0;
+        if (uploads <= 0) continue;
+        stackItems.add(
+          BarChartRodStackItem(
+            start,
+            start + uploads,
+            _chartColors[topSchools.indexOf(schoolName) % _chartColors.length],
+          ),
+        );
+        start += uploads;
+      }
+      final other = _toDouble(region['total_uploads']) - start;
+      if (other > 0) {
+        stackItems.add(
+          BarChartRodStackItem(start, start + other, const Color(0xFFCFD8DC)),
+        );
+        start += other;
+      }
+      return BarChartGroupData(
+        x: entry.key,
+        barRods: [
+          BarChartRodData(
+            toY: start <= 0 ? 0.1 : start,
+            width: 18,
+            rodStackItems: stackItems,
+            borderRadius: BorderRadius.circular(6),
+          ),
+        ],
+      );
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: topSchools.asMap().entries.map((entry) {
+            return Chip(
+              avatar: CircleAvatar(
+                backgroundColor: _chartColors[entry.key % _chartColors.length],
+                radius: 6,
+              ),
+              label: Text(entry.value, overflow: TextOverflow.ellipsis),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              barGroups: groups,
+              gridData: const FlGridData(show: true),
+              borderData: FlBorderData(show: false),
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: true, reservedSize: 36),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 38,
+                    getTitlesWidget: (value, meta) {
+                      final index = value.toInt();
+                      if (index < 0 || index >= regions.length) {
+                        return const SizedBox.shrink();
+                      }
+                      return SideTitleWidget(
+                        axisSide: meta.axisSide,
+                        space: 8,
+                        child: Text(
+                          _safeText(
+                            regions[index]['region'],
+                            fallback: 'Unknown',
+                          ),
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _scatterFrequencyChart(List<Map<String, dynamic>> data) {
+    if (data.isEmpty) {
+      return const Center(child: Text('No frequency data available'));
+    }
+    final spots = data
+        .map(
+          (row) => ScatterSpot(
+            _toDouble(row['uploads']),
+            _toDouble(row['average_days_between_uploads']),
+            dotPainter: FlDotCirclePainter(
+              color: const Color(0xFF1565C0),
+              radius: 5,
+              strokeWidth: 1,
+              strokeColor: Colors.white,
+            ),
+          ),
+        )
+        .toList();
+    return ScatterChart(
+      ScatterChartData(
+        scatterSpots: spots,
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 38),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(showTitles: true, reservedSize: 36),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _leaderboardTable(List<Map<String, dynamic>> data) {
+    if (data.isEmpty) {
+      return const Center(child: Text('No leaderboard data available'));
+    }
+    return SingleChildScrollView(
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(const Color(0xFFE8EEF7)),
+        columns: const [
+          DataColumn(label: Text('Rank')),
+          DataColumn(label: Text('School')),
+          DataColumn(label: Text('Region')),
+          DataColumn(label: Text('Uploads')),
+        ],
+        rows: data.asMap().entries.map((entry) {
+          final row = entry.value;
+          return DataRow(
+            cells: [
+              DataCell(Text('${entry.key + 1}')),
+              DataCell(
+                Text(_safeText(row['school_name'], fallback: 'Unknown')),
+              ),
+              DataCell(Text(_safeText(row['region'], fallback: 'Unknown'))),
+              DataCell(Text('${_toInt(row['uploads'])}')),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _duplicateSection(
+    List<Map<String, dynamic>> duplicates,
+    List<Map<String, dynamic>> matrix,
+  ) {
+    if (duplicates.isEmpty) {
+      return const Center(
+        child: Text('No cross-region duplicate glosses found.'),
+      );
+    }
+
+    final regionColumns = <String>{};
+    for (final row in matrix) {
+      regionColumns.add(_safeText(row['region'], fallback: 'Unknown'));
+    }
+    final columns = regionColumns.toList()..sort();
+    final duplicateRows = duplicates.take(8).toList();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DataTable(
+            headingRowColor: WidgetStateProperty.all(const Color(0xFFE8EEF7)),
+            columns: [
+              const DataColumn(label: Text('Gloss')),
+              const DataColumn(label: Text('Regions')),
+              const DataColumn(label: Text('Duplicates')),
+              ...columns.map((region) => DataColumn(label: Text(region))),
+            ],
+            rows: duplicateRows.map((row) {
+              final gloss = _safeText(row['gloss_label'], fallback: 'Unknown');
+              final regions = (row['regions_involved'] as List? ?? const [])
+                  .map((value) => value.toString())
+                  .toList();
+              final duplicateCount = _toInt(row['duplicate_uploads']);
+              final regionCounts = <String, int>{};
+              for (final entry in matrix) {
+                if (_safeText(entry['gloss_label'], fallback: '') != gloss)
+                  continue;
+                regionCounts[_safeText(entry['region'], fallback: 'Unknown')] =
+                    _toInt(entry['uploads']);
+              }
+              final maxValue = regionCounts.values.fold<int>(
+                0,
+                (previous, value) => value > previous ? value : previous,
+              );
+              return DataRow(
+                cells: [
+                  DataCell(Text(gloss)),
+                  DataCell(
+                    Wrap(
+                      spacing: 6,
+                      children: regions
+                          .map((region) => Chip(label: Text(region)))
+                          .toList(),
+                    ),
+                  ),
+                  DataCell(Text('$duplicateCount')),
+                  ...columns.map((region) {
+                    final value = regionCounts[region] ?? 0;
+                    final intensity = maxValue <= 0
+                        ? 0.08
+                        : (value / maxValue).clamp(0.08, 1.0);
+                    return DataCell(
+                      Container(
+                        width: 54,
+                        height: 28,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.deepOrange.withValues(alpha: intensity),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '$value',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
   void _showPin(dynamic name, dynamic sub) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -501,7 +1707,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   void _showVideoSourcePin(dynamic raw) {
     final pin = (raw as Map).cast<String, dynamic>();
     final videoId = pin['video_id'] as int?;
-    final known = _videos.where((e) => (e as Map)['video_id'] == videoId);
+    final known = _videos.where((item) => (item as Map)['video_id'] == videoId);
     final videoForDetails = known.isNotEmpty
         ? known.first as Map<String, dynamic>
         : pin;
@@ -557,139 +1763,8 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _legendDot(Color color, String label) => Row(
-    children: [
-      Container(
-        width: 12,
-        height: 12,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
-      const SizedBox(width: 4),
-      Text(label, style: const TextStyle(fontSize: 12)),
-    ],
-  );
-
-  // ── Schools tab ────────────────────────────────────────────────────────────
-  Widget _schoolsTab(ColorScheme cs) {
-    if (_schools.isEmpty) {
-      return const Center(child: Text('No schools registered yet.'));
-    }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: _schools.length,
-        separatorBuilder: (context, index) => const Divider(height: 1),
-        itemBuilder: (_, i) {
-          final s = _schools[i] as Map<String, dynamic>;
-          final region = s['region'] as String? ?? '';
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: (_regionColors[region] ?? cs.primary).withValues(
-                alpha: 0.15,
-              ),
-              child: Icon(
-                Icons.school,
-                color: _regionColors[region] ?? cs.primary,
-              ),
-            ),
-            title: Text(
-              s['name'] ?? '',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              '${s['district']} · ${s['region']}  |  ${s['uploads'] ?? 0} uploads',
-            ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${s['deaf_students'] ?? 0} deaf',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  s['school_type'] ?? '',
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  // ── Videos tab ─────────────────────────────────────────────────────────────
-  Widget _videosTab(ColorScheme cs) {
-    if (_videos.isEmpty) return const Center(child: Text('No videos yet.'));
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: _videos.length,
-        separatorBuilder: (context, index) => const Divider(height: 1),
-        itemBuilder: (_, i) {
-          final v = _videos[i] as Map<String, dynamic>;
-          final status = v['verified_status'] ?? 'pending';
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: cs.primaryContainer,
-              child: Icon(Icons.sign_language, color: cs.primary, size: 20),
-            ),
-            title: Text(
-              v['gloss_label'] ?? 'Untitled',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              '${v['school_name'] ?? 'Individual'} · ${v['sign_category'] ?? 'General'}',
-            ),
-            trailing: status == 'pending'
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.check_circle,
-                          color: Colors.green,
-                        ),
-                        onPressed: () =>
-                            _verify(v['video_id'] as int, 'approved'),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.cancel, color: Colors.red),
-                        onPressed: () =>
-                            _verify(v['video_id'] as int, 'rejected'),
-                      ),
-                    ],
-                  )
-                : Chip(
-                    label: Text(
-                      status,
-                      style: const TextStyle(fontSize: 10, color: Colors.white),
-                    ),
-                    backgroundColor: status == 'approved'
-                        ? Colors.green
-                        : Colors.red,
-                    padding: EdgeInsets.zero,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => VideoDetailScreen(video: v)),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Future<void> _verify(int id, String status) async {
     await ApiService.verifyVideo(id, status);
-    _load();
+    await _load();
   }
 }
