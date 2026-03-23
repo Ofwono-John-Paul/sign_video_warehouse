@@ -20,7 +20,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, Boolean,
-    Text, DateTime, func, or_
+    Text, DateTime, func, or_, distinct
 )
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
@@ -373,6 +373,54 @@ def _ensure_region_key(region_name: Optional[str], db: Session) -> Optional[int]
         e = DimRegion(region_name=region_name)
         db.add(e); db.flush()
     return e.region_key
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if parsed.tzinfo is not None:
+            parsed = parsed.replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        return None
+
+
+def _apply_video_scope(
+    query,
+    *,
+    region: str = '',
+    school_id: Optional[int] = None,
+    start_date: str = '',
+    end_date: str = '',
+):
+    if region:
+        query = query.filter(Video.region == region)
+    if school_id:
+        query = query.filter(Video.school_id == school_id)
+
+    start_dt = _parse_iso_datetime(start_date)
+    if start_dt:
+        query = query.filter(Video.upload_timestamp >= start_dt)
+
+    end_dt = _parse_iso_datetime(end_date)
+    if end_dt:
+        query = query.filter(Video.upload_timestamp < end_dt + timedelta(days=1))
+
+    return query
+
+
+def _period_label(value: datetime, granularity: str) -> str:
+    if granularity == 'day':
+        return value.strftime('%Y-%m-%d')
+    if granularity == 'week':
+        year, week, _ = value.isocalendar()
+        return f'{year}-W{week:02d}'
+    return value.strftime('%Y-%m')
 
 #  AUTH ENDPOINTS
 @app.get('/api/health')
@@ -807,73 +855,344 @@ def health_nearby(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get('/api/admin/analytics/overview')
-def admin_overview(user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    total_schools  = db.query(School).count()
-    total_videos   = db.query(Video).count()
-    total_approved = db.query(Video).filter_by(verified_status='approved').count()
-    total_pending  = db.query(Video).filter_by(verified_status='pending').count()
-    total_students = db.query(func.sum(School.deaf_students)).scalar() or 0
+def admin_overview(
+    region: str = Query(''),
+    school_id: Optional[int] = Query(None),
+    start_date: str = Query(''),
+    end_date: str = Query(''),
+    granularity: str = Query('month'),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    granularity = granularity if granularity in {'day', 'week', 'month'} else 'month'
 
-    spr = db.query(School.region, func.count()).group_by(School.region).all()
-    vpr = db.query(Video.region,  func.count()).group_by(Video.region).all()
-    vpc = db.query(Video.sign_category, func.count())\
-            .group_by(Video.sign_category)\
-            .order_by(func.count().desc()).all()
+    video_scope = _apply_video_scope(
+        db.query(Video),
+        region=region,
+        school_id=school_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    school_scope = db.query(School)
+    if region:
+        school_scope = school_scope.filter(School.region == region)
+    if school_id:
+        school_scope = school_scope.filter(School.id == school_id)
 
-    top_uploaders = db.query(
-        User.username,
-        User.email,
-        User.role,
-        School.name,
+    total_schools = school_scope.count()
+    total_regions = school_scope.with_entities(func.count(distinct(School.region))).scalar() or 0
+    total_videos = video_scope.count()
+    total_uploads = total_videos
+    total_students = school_scope.with_entities(func.coalesce(func.sum(School.deaf_students), 0)).scalar() or 0
+
+    schools_per_region_rows = school_scope.with_entities(
+        School.region,
+        func.count(School.id).label('count'),
+    ).group_by(School.region).order_by(func.count(School.id).desc(), School.region.asc()).all()
+
+    uploads_by_region_rows = video_scope.with_entities(
+        Video.region,
         func.count(Video.id).label('uploads'),
-    ).outerjoin(Video, Video.uploader_id == User.user_id)\
-     .outerjoin(School, School.id == User.school_id)\
-     .group_by(User.user_id, User.username, User.email, User.role, School.name)\
-     .order_by(func.count(Video.id).desc(), User.username.asc())\
-     .limit(10).all()
+    ).group_by(Video.region).order_by(func.count(Video.id).desc(), Video.region.asc()).all()
 
-    top_signs = db.query(
+    sign_rows = video_scope.with_entities(
         Video.gloss_label,
         func.count(Video.id).label('uploads'),
-    ).filter(Video.gloss_label.isnot(None))\
-     .group_by(Video.gloss_label)\
-     .order_by(func.count(Video.id).desc(), Video.gloss_label.asc())\
-     .limit(10).all()
+        func.count(distinct(Video.region)).label('region_count'),
+        func.count(distinct(Video.school_id)).label('school_count'),
+    ).filter(Video.gloss_label.isnot(None)).group_by(Video.gloss_label).order_by(
+        func.count(Video.id).desc(),
+        Video.gloss_label.asc(),
+    ).all()
 
-    most_active = db.query(School.name, School.region, func.count(Video.id).label('u'))\
-        .outerjoin(Video, Video.school_id == School.id)\
-        .group_by(School.id, School.name, School.region)\
-        .order_by(func.count(Video.id).desc()).limit(5).all()
+    top_signs = [{
+        'gloss_label': gloss or 'Unknown',
+        'uploads': int(uploads or 0),
+        'regions': int(region_count or 0),
+        'schools': int(school_count or 0),
+    } for gloss, uploads, region_count, school_count in sign_rows[:10]]
 
-    trend = db.query(
-        func.date_trunc('month', Video.upload_timestamp).label('m'),
-        func.count().label('c'),
-    ).group_by('m').order_by('m').limit(12).all()
+    most_active_region = None
+    if uploads_by_region_rows:
+        region_name, region_uploads = uploads_by_region_rows[0]
+        most_active_region = {
+            'region': region_name or 'Unknown',
+            'uploads': int(region_uploads or 0),
+        }
+
+    most_active_school_row = video_scope.outerjoin(School, School.id == Video.school_id).with_entities(
+        School.id,
+        School.name,
+        School.region,
+        func.count(Video.id).label('uploads'),
+    ).group_by(School.id, School.name, School.region).order_by(
+        func.count(Video.id).desc(),
+        School.name.asc(),
+    ).first()
+
+    most_active_school = None
+    if most_active_school_row:
+        school_id_value, school_name, school_region, uploads = most_active_school_row
+        most_active_school = {
+            'school_id': school_id_value,
+            'school_name': school_name or 'Individual',
+            'region': school_region or 'Unknown',
+            'uploads': int(uploads or 0),
+        }
+
+    gloss_region_rows = video_scope.with_entities(
+        Video.gloss_label,
+        Video.region,
+        func.count(Video.id).label('uploads'),
+    ).filter(Video.gloss_label.isnot(None)).group_by(
+        Video.gloss_label,
+        Video.region,
+    ).all()
+
+    gloss_school_rows = video_scope.with_entities(
+        Video.gloss_label,
+        func.count(distinct(Video.school_id)).label('school_count'),
+    ).filter(Video.gloss_label.isnot(None)).group_by(Video.gloss_label).all()
+
+    school_count_by_gloss = {
+        (gloss or 'Unknown'): int(count or 0)
+        for gloss, count in gloss_school_rows
+    }
+
+    duplicate_map = {}
+    duplicate_matrix = []
+    for gloss, region_name, uploads in gloss_region_rows:
+        gloss_name = gloss or 'Unknown'
+        region_name = region_name or 'Unknown'
+        duplicate_matrix.append({
+            'gloss_label': gloss_name,
+            'region': region_name,
+            'uploads': int(uploads or 0),
+        })
+        entry = duplicate_map.setdefault(gloss_name, {
+            'gloss_label': gloss_name,
+            'total_uploads': 0,
+            'regions': {},
+            'school_count': school_count_by_gloss.get(gloss_name, 0),
+        })
+        entry['total_uploads'] += int(uploads or 0)
+        entry['regions'][region_name] = int(uploads or 0)
+
+    duplicate_signs = []
+    for entry in duplicate_map.values():
+        regions_involved = list(entry['regions'].keys())
+        if len(regions_involved) < 2:
+            continue
+        duplicate_signs.append({
+            'gloss_label': entry['gloss_label'],
+            'total_uploads': entry['total_uploads'],
+            'duplicate_uploads': max(entry['total_uploads'] - len(regions_involved), 0),
+            'region_count': len(regions_involved),
+            'regions_involved': regions_involved,
+            'school_count': entry['school_count'],
+        })
+    duplicate_signs.sort(
+        key=lambda row: (-row['duplicate_uploads'], -row['total_uploads'], row['gloss_label'])
+    )
+
+    trend_rows = video_scope.with_entities(
+        func.date_trunc(granularity, Video.upload_timestamp).label('period'),
+        func.count(Video.id).label('uploads'),
+    ).group_by('period').order_by('period').all()
+
+    upload_trend = []
+    for period, uploads in trend_rows:
+        if period is None:
+            continue
+        upload_trend.append({
+            'period': _period_label(period, granularity),
+            'uploads': int(uploads or 0),
+        })
 
     return {
-        'total_schools':   total_schools,
-        'total_videos':    total_videos,
-        # Flutter uses 'approved' and 'pending' directly
-        'approved':        total_approved,
-        'pending':         total_pending,
-        'total_students':  int(total_students),
-        'schools_per_region':  [{'region': r, 'count': c} for r, c in spr],
-        'videos_per_region':   [{'region': r or 'Unknown', 'count': c} for r, c in vpr],
-        # Flutter uses 'by_category' with 'sign_category' key on each item
-        'by_category': [{'sign_category': c or 'Other', 'count': n} for c, n in vpc],
-        'top_uploaders': [{
-            'username': u,
-            'email': e,
-            'role': r,
-            'school_name': s or 'Individual',
-            'uploads': int(n or 0),
-        } for u, e, r, s, n in top_uploaders],
-        'top_signs': [{
-            'gloss_label': g or 'Unknown',
-            'uploads': int(n or 0),
-        } for g, n in top_signs],
-        'most_active_schools': [{'name': n, 'region': r, 'uploads': u} for n, r, u in most_active],
-        'upload_trend':        [{'month': str(m.m)[:7], 'count': m.c} for m in trend],
+        'filters': {
+            'region': region,
+            'school_id': school_id,
+            'start_date': start_date,
+            'end_date': end_date,
+            'granularity': granularity,
+        },
+        'total_schools': int(total_schools),
+        'total_regions': int(total_regions),
+        'total_videos': int(total_videos),
+        'total_uploads': int(total_uploads),
+        'total_students': int(total_students),
+        'most_active_region': most_active_region,
+        'most_active_school': most_active_school,
+        'kpis': {
+            'total_schools': int(total_schools),
+            'total_regions': int(total_regions),
+            'total_videos': int(total_videos),
+            'total_uploads': int(total_uploads),
+            'most_active_region': most_active_region,
+            'most_active_school': most_active_school,
+        },
+        'schools_per_region': [
+            {'region': region_name or 'Unknown', 'count': int(count or 0)}
+            for region_name, count in schools_per_region_rows
+        ],
+        'uploads_by_region': [
+            {'region': region_name or 'Unknown', 'uploads': int(uploads or 0)}
+            for region_name, uploads in uploads_by_region_rows
+        ],
+        'duplicate_signs': duplicate_signs,
+        'duplicate_matrix': duplicate_matrix,
+        'top_signs': top_signs,
+        'upload_trend': upload_trend,
+    }
+
+
+@app.get('/api/admin/analytics/schools')
+def admin_schools_analytics(
+    region: str = Query(''),
+    school_id: Optional[int] = Query(None),
+    start_date: str = Query(''),
+    end_date: str = Query(''),
+    granularity: str = Query('month'),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    granularity = granularity if granularity in {'day', 'week', 'month'} else 'month'
+    video_scope = _apply_video_scope(
+        db.query(Video),
+        region=region,
+        school_id=school_id,
+        start_date=start_date,
+        end_date=end_date,
+    ).filter(Video.school_id.isnot(None))
+
+    school_scope = db.query(School)
+    if region:
+        school_scope = school_scope.filter(School.region == region)
+    if school_id:
+        school_scope = school_scope.filter(School.id == school_id)
+
+    school_options = school_scope.with_entities(
+        School.id,
+        School.name,
+        School.region,
+        School.district,
+    ).order_by(School.region.asc(), School.name.asc()).all()
+
+    school_rows = video_scope.outerjoin(School, School.id == Video.school_id).with_entities(
+        School.id,
+        School.name,
+        School.region,
+        func.count(Video.id).label('uploads'),
+        func.min(Video.upload_timestamp).label('first_upload'),
+        func.max(Video.upload_timestamp).label('last_upload'),
+    ).group_by(School.id, School.name, School.region).order_by(
+        func.count(Video.id).desc(),
+        School.name.asc(),
+    ).all()
+
+    uploads_per_school = []
+    average_frequency = []
+    for school_id_value, school_name, school_region, uploads, first_upload, last_upload in school_rows:
+        upload_count = int(uploads or 0)
+        uploads_per_school.append({
+            'school_id': school_id_value,
+            'school_name': school_name or 'Individual',
+            'region': school_region or 'Unknown',
+            'uploads': upload_count,
+        })
+
+        if upload_count > 1 and first_upload and last_upload:
+            span_days = max((last_upload - first_upload).total_seconds() / 86400.0, 0.0)
+            avg_days = span_days / max(upload_count - 1, 1)
+        else:
+            avg_days = 0.0
+        average_frequency.append({
+            'school_id': school_id_value,
+            'school_name': school_name or 'Individual',
+            'region': school_region or 'Unknown',
+            'uploads': upload_count,
+            'average_days_between_uploads': round(avg_days, 2),
+        })
+
+    region_groups = {}
+    region_rows = video_scope.outerjoin(School, School.id == Video.school_id).with_entities(
+        School.region,
+        School.name,
+        func.count(Video.id).label('uploads'),
+    ).group_by(School.region, School.name).order_by(
+        School.region.asc(),
+        func.count(Video.id).desc(),
+        School.name.asc(),
+    ).all()
+
+    for region_name, school_name, uploads in region_rows:
+        region_label = region_name or 'Unknown'
+        region_entry = region_groups.setdefault(region_label, {
+            'region': region_label,
+            'total_uploads': 0,
+            'schools': [],
+        })
+        upload_count = int(uploads or 0)
+        region_entry['total_uploads'] += upload_count
+        region_entry['schools'].append({
+            'school_name': school_name or 'Individual',
+            'uploads': upload_count,
+        })
+
+    timeline_school_ids = [school_id] if school_id else [row[0] for row in school_rows[:5] if row[0] is not None]
+    timeline_rows = []
+    if timeline_school_ids:
+        timeline_rows = video_scope.outerjoin(School, School.id == Video.school_id).with_entities(
+            School.id,
+            School.name,
+            func.date_trunc(granularity, Video.upload_timestamp).label('period'),
+            func.count(Video.id).label('uploads'),
+        ).filter(Video.school_id.in_(timeline_school_ids)).group_by(
+            School.id,
+            School.name,
+            'period',
+        ).order_by('period').all()
+
+    timeline_map = {}
+    for school_id_value, school_name, period, uploads in timeline_rows:
+        if period is None:
+            continue
+        key = str(school_id_value or school_name or 'Unknown')
+        series = timeline_map.setdefault(key, {
+            'school_id': school_id_value,
+            'school_name': school_name or 'Individual',
+            'points': [],
+        })
+        series['points'].append({
+            'period': _period_label(period, granularity),
+            'uploads': int(uploads or 0),
+        })
+
+    top_performing_schools = uploads_per_school[:10]
+
+    return {
+        'filters': {
+            'region': region,
+            'school_id': school_id,
+            'start_date': start_date,
+            'end_date': end_date,
+            'granularity': granularity,
+        },
+        'school_options': [
+            {
+                'school_id': school_id_value,
+                'school_name': school_name,
+                'region': school_region,
+                'district': district,
+            }
+            for school_id_value, school_name, school_region, district in school_options
+        ],
+        'uploads_per_school': uploads_per_school,
+        'school_contribution_by_region': list(region_groups.values()),
+        'activity_timeline': list(timeline_map.values()),
+        'top_performing_schools': top_performing_schools,
+        'average_upload_frequency': average_frequency[:10],
     }
 
 
