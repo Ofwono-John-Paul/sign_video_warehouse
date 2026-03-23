@@ -330,10 +330,69 @@ class ApiService {
   }
 
   // ── Admin Analytics ───────────────────────────────────────────────────────
-  static Future<Map<String, dynamic>> getAdminOverview() async {
+  static Map<String, String> _analyticsQueryParams({
+    String region = '',
+    int? schoolId,
+    String startDate = '',
+    String endDate = '',
+    String granularity = 'month',
+  }) {
+    return {
+      if (region.isNotEmpty) 'region': region,
+      if (schoolId != null) 'school_id': schoolId.toString(),
+      if (startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate.isNotEmpty) 'end_date': endDate,
+      if (granularity.isNotEmpty) 'granularity': granularity,
+    };
+  }
+
+  static Future<Map<String, dynamic>> getAdminOverview({
+    String region = '',
+    int? schoolId,
+    String startDate = '',
+    String endDate = '',
+    String granularity = 'month',
+  }) async {
     final headers = await _authHeaders();
     final res = await http.get(
-      Uri.parse('$baseUrl/api/admin/analytics/overview'),
+      Uri.parse('$baseUrl/api/admin/analytics/overview').replace(
+        queryParameters: _analyticsQueryParams(
+          region: region,
+          schoolId: schoolId,
+          startDate: startDate,
+          endDate: endDate,
+          granularity: granularity,
+        ),
+      ),
+      headers: headers,
+    );
+    dynamic body;
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {};
+    }
+    return {'statusCode': res.statusCode, 'body': body};
+  }
+
+  static Future<Map<String, dynamic>> getAdminSchoolAnalytics({
+    String region = '',
+    int? schoolId,
+    String startDate = '',
+    String endDate = '',
+    String granularity = 'month',
+  }) async {
+    final headers = await _authHeaders();
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/admin/analytics/schools').replace(
+        queryParameters: _analyticsQueryParams(
+          region: region,
+          schoolId: schoolId,
+          startDate: startDate,
+          endDate: endDate,
+          granularity: granularity,
+        ),
+      ),
       headers: headers,
     );
     dynamic body;
