@@ -1,11 +1,12 @@
+import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../services/api_service.dart';
 import 'live_record_screen.dart';
+import '../utils/replacement_video_preview_controller.dart';
 
 class VideoReplaceSheet extends StatefulWidget {
   final Map<String, dynamic> video;
@@ -27,9 +28,7 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
   VideoPlayerController? _originalController;
   VideoPlayerController? _replacementController;
 
-  PlatformFile? _replacementFile;
   Uint8List? _replacementBytes;
-  String? _replacementPath;
   String _replacementName = '';
 
   bool _loadingOriginal = true;
@@ -103,22 +102,18 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
     await _replacementController?.pause();
     await _replacementController?.dispose();
 
-    VideoPlayerController? controller;
-    if (path != null && path.isNotEmpty) {
-      final uri =
-          path.startsWith('http') ||
-              path.startsWith('blob:') ||
-              path.startsWith('file:')
-          ? Uri.parse(path)
-          : Uri.file(path);
-      controller = VideoPlayerController.networkUrl(uri);
+    final controller = await createReplacementPreviewController(
+      fileName: name,
+      path: path,
+      bytes: bytes,
+    );
+    if (controller != null) {
       try {
         await controller.initialize();
         await controller.setLooping(true);
         await controller.play();
       } catch (_) {
         await controller.dispose();
-        controller = null;
       }
     }
 
@@ -128,31 +123,10 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
     }
 
     setState(() {
-      _replacementFile = PlatformFile(
-        name: name,
-        path: path,
-        size: bytes?.length ?? 0,
-        bytes: bytes,
-      );
       _replacementBytes = bytes;
-      _replacementPath = path;
       _replacementName = name;
       _replacementController = controller;
     });
-  }
-
-  Future<void> _pickReplacementFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      withData: true,
-    );
-    if (result == null || !mounted) return;
-    final picked = result.files.first;
-    await _setReplacementFile(
-      name: picked.name.isNotEmpty ? picked.name : 'replacement_video.mp4',
-      path: picked.path,
-      bytes: picked.bytes,
-    );
   }
 
   Future<void> _recordReplacementFile() async {
@@ -171,9 +145,9 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
   }
 
   Future<void> _submitReplacement() async {
-    if (_replacementFile == null) {
+    if (_replacementController == null) {
       setState(() {
-        _error = 'Pick or record a replacement video first.';
+        _error = 'Record a replacement video first.';
       });
       return;
     }
@@ -207,8 +181,7 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
     try {
       final result = await ApiService.replaceVideo(
         videoId: widget.video['video_id'] as int,
-        filePath: _replacementPath,
-        fileBytes: _replacementBytes,
+        fileBytes: _replacementBytes!,
         fileName: _replacementName,
         reason: _reasonController.text,
       );
@@ -380,11 +353,11 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
                       children: [
                         _previewArea(
                           _replacementController,
-                          _replacementFile == null
+                          _replacementController == null
                               ? 'No replacement selected yet'
                               : _replacementName,
                         ),
-                        if (_replacementFile != null) ...[
+                        if (_replacementController != null) ...[
                           const SizedBox(height: 8),
                           Text(
                             _replacementName,
@@ -435,11 +408,6 @@ class _VideoReplaceSheetState extends State<VideoReplaceSheet> {
                     onPressed: _submitting ? null : _recordReplacementFile,
                     icon: const Icon(Icons.videocam),
                     label: const Text('Record with webcam'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _submitting ? null : _pickReplacementFile,
-                    icon: const Icon(Icons.upload_file),
-                    label: const Text('Upload replacement file'),
                   ),
                   FilledButton.icon(
                     onPressed: _submitting ? null : _submitReplacement,
