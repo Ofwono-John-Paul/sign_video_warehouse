@@ -298,7 +298,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return NavigationRail(
       selectedIndex: _selectedIndex,
       onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-      labelType: NavigationRailLabelType.all,
       extended: true,
       backgroundColor: cs.surface,
       leading: Padding(
