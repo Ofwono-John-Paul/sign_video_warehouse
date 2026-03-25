@@ -752,10 +752,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 ),
               ],
             ),
-            trailing: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 180),
-              child: const SizedBox.shrink(),
-            ),
+            trailing: const Icon(Icons.chevron_right, color: Colors.black38),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => VideoDetailScreen(video: video),
