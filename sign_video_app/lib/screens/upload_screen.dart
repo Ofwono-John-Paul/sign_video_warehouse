@@ -34,16 +34,27 @@ class _UploadScreenState extends State<UploadScreen> {
   String _category = 'Education';
   String _region = 'Central';
 
-  static const _languages = ['USL', 'English', 'Luganda'];
-  static const _sentenceTypes = [
-    'Statement',
-    'Question',
-    'Command',
-    'Exclamation',
-    'Other',
-  ];
   static const _categories = ['Education', 'Health'];
   static const _regions = ['Central', 'Western', 'Eastern', 'Northern'];
+  static const Map<String, List<String>> _sentenceTypesByCategory = {
+    'Education': [
+      'Statement',
+      'Question',
+      'Instruction',
+      'Explanation',
+      'Definition',
+    ],
+    'Health': ['Statement', 'Question', 'Advice', 'Warning', 'Instruction'],
+  };
+
+  List<String> get _sentenceTypes =>
+      _sentenceTypesByCategory[_category] ?? const ['Statement'];
+
+  @override
+  void initState() {
+    super.initState();
+    _sentenceType = _sentenceTypes.first;
+  }
 
   Future<void> _pickFile() async {
     // Use image_picker for web/mobile so picked files always have a previewable URI.
@@ -388,7 +399,7 @@ class _UploadScreenState extends State<UploadScreen> {
       _geoSource = '';
       _category = 'Education';
       _language = 'USL';
-      _sentenceType = 'Statement';
+      _sentenceType = _sentenceTypes.first;
       _region = 'Central';
     });
   }
@@ -465,19 +476,59 @@ class _UploadScreenState extends State<UploadScreen> {
 
                       // ── Dropdowns ────────────────────────────────────────
                       _dropdown(
-                        'Sign Category *',
+                        'Topic of Interest *',
                         _category,
                         _categories,
                         Icons.category,
-                        (v) => setState(() => _category = v!),
+                        (v) {
+                          final nextCategory = v ?? _category;
+                          setState(() {
+                            _category = nextCategory;
+                            if (!_sentenceTypes.contains(_sentenceType)) {
+                              _sentenceType = _sentenceTypes.first;
+                            }
+                          });
+                        },
                       ),
                       const SizedBox(height: 14),
-                      _dropdown(
-                        'Language / Variant',
-                        _language,
-                        _languages,
-                        Icons.language,
-                        (v) => setState(() => _language = v!),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade400),
+                          borderRadius: BorderRadius.circular(10),
+                          color: Colors.grey.shade50,
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.language, size: 20),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Language / Variant',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'USL',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 14),
                       _dropdown(
