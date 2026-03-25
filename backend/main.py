@@ -53,7 +53,7 @@ cloudinary.config(
 REGIONS      = ['Central', 'Western', 'Eastern', 'Northern']
 SCHOOL_TYPES = ['Primary', 'Secondary', 'Vocational']
 CATEGORIES   = ['Education', 'Health']
-VERIFIED     = ['pending', 'approved', 'rejected']
+VERIFIED     = ['pending', 'approved', 'rejected', 'replaced']
 
 # ── DATABASE ───────────────────────────────────────────────────────────────────
 engine       = create_engine(DATABASE_URL)
@@ -130,6 +130,12 @@ class Video(Base):
     duration         = Column(Float,   default=0)
     file_size_kb     = Column(Float,   default=0)
     verified_status  = Column(String(20), default='pending')
+    status           = Column(String(20), default='pending')
+    replaced_by      = Column(Integer, nullable=True)
+    replaced_from    = Column(Integer, nullable=True)
+    replaced_reason  = Column(Text, nullable=True)
+    replaced_at      = Column(DateTime, nullable=True)
+    replacement_admin_id = Column(Integer, nullable=True)
     upload_timestamp = Column(DateTime,   default=datetime.utcnow)
 
 
@@ -197,6 +203,16 @@ class FactVideoUpload(Base):
     verified_status = Column(String(20), default='pending')
 
 
+class VideoReplacementAudit(Base):
+    __tablename__ = 'video_replacement_audit'
+    id                = Column(Integer, primary_key=True)
+    original_video_id = Column(Integer, nullable=False)
+    replaced_video_id = Column(Integer, nullable=False)
+    admin_id          = Column(Integer, nullable=False)
+    reason            = Column(Text, nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)
+
+
 # ── Legacy (read-only) ──────────────────────────────────────────────────────
 
 class DimVideo(Base):
@@ -210,6 +226,40 @@ class DimVideo(Base):
 
 # ── Create tables if missing ───────────────────────────────────────────────────
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_video_replacement_schema():
+    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+        return
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'videos'
+                ) THEN
+                    ALTER TABLE public.videos
+                        ADD COLUMN IF NOT EXISTS status VARCHAR(20),
+                        ADD COLUMN IF NOT EXISTS replaced_by INTEGER,
+                        ADD COLUMN IF NOT EXISTS replaced_from INTEGER,
+                        ADD COLUMN IF NOT EXISTS replaced_reason TEXT,
+                        ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMP,
+                        ADD COLUMN IF NOT EXISTS replacement_admin_id INTEGER;
+
+                    UPDATE public.videos
+                    SET status = COALESCE(status, verified_status, 'pending')
+                    WHERE status IS NULL;
+                END IF;
+            END $$;
+            """
+        )
+
+
+_ensure_video_replacement_schema()
 
 # Seed admin user if not present
 _seed_db = SessionLocal()
@@ -579,6 +629,7 @@ async def _handle_upload(
             geo_source=resolved_geo_source,
             duration=duration, file_size_kb=size_kb,
             verified_status='pending',
+            status='pending',
         )
         db.add(video); db.flush()
 
@@ -596,6 +647,7 @@ async def _handle_upload(
         return {'message': 'Video uploaded successfully',
             'video_id': video.id,
             'verified_status': 'pending',
+            'status': 'pending',
             'video_url': playback_url,
             'playback_url': playback_url,
             'file_path': video_url,
@@ -687,7 +739,14 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'file_size_kb':    round(v.file_size_kb or 0, 1),
         'duration':        v.duration,
         'verified_status': v.verified_status,
+        'status':          v.status or v.verified_status,
+        'replaced_by':     v.replaced_by,
+        'replaced_from':   v.replaced_from,
+        'replaced_reason': v.replaced_reason,
+        'replaced_at':     str(v.replaced_at) if v.replaced_at else '',
+        'replacement_admin_id': v.replacement_admin_id,
         'upload_date':     str(v.upload_timestamp)[:10] if v.upload_timestamp else '',
+        'created_at':      str(v.upload_timestamp) if v.upload_timestamp else '',
         'school_name':     school.name if school else 'Individual',
         'uploader':        uploader.username if uploader else '',
     }
@@ -757,11 +816,106 @@ def verify_video(
     if new_status not in VERIFIED:
         raise HTTPException(400, detail=f'status must be one of {VERIFIED}')
     v.verified_status = new_status
+    v.status = new_status
     fct = db.query(FactVideoUpload).filter_by(video_id=video_id).first()
     if fct:
         fct.verified_status = new_status
     db.commit()
     return {'message': f'Video {new_status}', 'video_id': video_id}
+
+
+@app.post('/api/videos/{video_id}/replace', status_code=201)
+async def replace_video(
+    video_id: int,
+    file: UploadFile = File(...),
+    reason: str = Form(''),
+    duration: float = Form(0.0),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    original = db.get(Video, video_id)
+    if not original:
+        raise HTTPException(404, detail='Video not found')
+
+    file_name = (file.filename or '').lower()
+    file_ext = os.path.splitext(file_name)[1]
+    allowed_extensions = {'.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.3gp'}
+    looks_like_video = (
+        (file.content_type or '').startswith('video/')
+        or file_ext in allowed_extensions
+        or (file.content_type or '') == 'application/octet-stream'
+    )
+    if not looks_like_video:
+        raise HTTPException(400, detail='Replacement must be a video file')
+
+    try:
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            resource_type='video',
+            folder='usl_videos',
+        )
+        video_url = upload_result['secure_url']
+        playback_url = _to_browser_playable_video_url(video_url)
+        size_kb = (upload_result.get('bytes') or 0) / 1024
+
+        new_video = Video(
+            school_id=original.school_id,
+            uploader_id=user.user_id,
+            file_path=video_url,
+            gloss_label=original.gloss_label,
+            language_variant=original.language_variant,
+            sign_category=original.sign_category,
+            sentence_type=original.sentence_type,
+            region=original.region,
+            district=original.district,
+            uploader_latitude=original.uploader_latitude,
+            uploader_longitude=original.uploader_longitude,
+            geo_source=original.geo_source,
+            duration=duration or original.duration or 0,
+            file_size_kb=size_kb,
+            verified_status='pending',
+            status='pending',
+            replaced_from=original.id,
+        )
+        db.add(new_video)
+        db.flush()
+
+        now = datetime.utcnow()
+        original.verified_status = 'replaced'
+        original.status = 'replaced'
+        original.replaced_by = new_video.id
+        original.replaced_reason = (reason or '').strip() or None
+        original.replaced_at = now
+        original.replacement_admin_id = user.user_id
+
+        db.add(
+            VideoReplacementAudit(
+                original_video_id=original.id,
+                replaced_video_id=new_video.id,
+                admin_id=user.user_id,
+                reason=(reason or '').strip() or None,
+            )
+        )
+        db.commit()
+        db.refresh(original)
+        db.refresh(new_video)
+
+        return {
+            'message': 'Video successfully replaced',
+            'original_video_id': original.id,
+            'replaced_video_id': new_video.id,
+            'original_video': _fmt_video(original, db),
+            'replacement_video': _fmt_video(new_video, db),
+            'video_url': playback_url,
+            'playback_url': playback_url,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"ERROR in replace_video: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f'Replacement failed: {str(e)}')
 
 #  SCHOOL ANALYTICS
 @app.get('/api/schools/{school_id}/analytics')
