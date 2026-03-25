@@ -471,8 +471,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> replaceVideo({
     required int videoId,
-    String? filePath,
-    Uint8List? fileBytes,
+    required Uint8List fileBytes,
     String? fileName,
     String reason = '',
   }) async {
@@ -488,24 +487,15 @@ class ApiService {
       request.fields['reason'] = reason.trim();
     }
 
-    if (fileBytes != null) {
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          fileBytes,
-          filename: (fileName != null && fileName.isNotEmpty)
-              ? fileName
-              : 'replacement.webm',
-        ),
-      );
-    } else if (filePath != null && filePath.isNotEmpty) {
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
-    } else {
-      return {
-        'statusCode': 400,
-        'body': {'error': 'No replacement file selected'},
-      };
-    }
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        fileBytes,
+        filename: (fileName != null && fileName.isNotEmpty)
+            ? fileName
+            : 'replacement.webm',
+      ),
+    );
 
     final streamed = await request.send().timeout(const Duration(minutes: 5));
     final res = await http.Response.fromStream(streamed);
