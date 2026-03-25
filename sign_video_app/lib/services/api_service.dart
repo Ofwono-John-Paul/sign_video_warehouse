@@ -469,6 +469,55 @@ class ApiService {
     return {'statusCode': res.statusCode, 'body': body};
   }
 
+  static Future<Map<String, dynamic>> replaceVideo({
+    required int videoId,
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
+    String reason = '',
+  }) async {
+    final token = await getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/api/videos/$videoId/replace'),
+    );
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+    if (reason.trim().isNotEmpty) {
+      request.fields['reason'] = reason.trim();
+    }
+
+    if (fileBytes != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          fileBytes,
+          filename: (fileName != null && fileName.isNotEmpty)
+              ? fileName
+              : 'replacement.webm',
+        ),
+      );
+    } else if (filePath != null && filePath.isNotEmpty) {
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    } else {
+      return {
+        'statusCode': 400,
+        'body': {'error': 'No replacement file selected'},
+      };
+    }
+
+    final streamed = await request.send().timeout(const Duration(minutes: 5));
+    final res = await http.Response.fromStream(streamed);
+    dynamic body;
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      body = {'error': 'Server error (HTTP ${res.statusCode})'};
+    }
+    return {'statusCode': res.statusCode, 'body': body};
+  }
+
   // ── Metadata ──────────────────────────────────────────────────────────────
   static Future<List<String>> getCategories() async {
     try {
