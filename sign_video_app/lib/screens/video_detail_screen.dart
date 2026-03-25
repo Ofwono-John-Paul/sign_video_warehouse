@@ -28,7 +28,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _reloadVideo() async {
     final rawId = _video['video_id'];
-    final videoId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    final videoId = rawId is int
+        ? rawId
+        : int.tryParse(rawId?.toString() ?? '');
     if (videoId == null) return;
 
     try {
@@ -51,7 +53,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           _video['file_path']?.toString(),
     );
 
-        final rawId = _video['video_id'];
+    final rawId = _video['video_id'];
     final videoId = rawId is int
         ? rawId
         : int.tryParse(rawId?.toString() ?? '');
@@ -208,7 +210,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final status = _video['status']?.toString() ??
+    final status =
+        _video['status']?.toString() ??
         _video['verified_status']?.toString() ??
         'pending';
     final isApproved = status == 'approved';
@@ -327,9 +330,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 context,
                 Icons.timer,
                 'Duration',
-                _video['duration'] != null
-                  ? '${_video['duration']} sec'
-                    : null,
+                _video['duration'] != null ? '${_video['duration']} sec' : null,
               ),
               _row(
                 context,
@@ -362,9 +363,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                               await _reloadVideo();
                               if (!mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Video approved'),
-                                ),
+                                const SnackBar(content: Text('Video approved')),
                               );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
