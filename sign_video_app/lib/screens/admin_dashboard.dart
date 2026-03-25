@@ -7,7 +7,6 @@ import 'package:latlong2/latlong.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
-import 'video_replace_sheet.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -755,33 +754,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             trailing: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 180),
-              child: Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  _videoActionButton(
-                    label: 'Approve',
-                    icon: Icons.check_circle,
-                    color: Colors.green,
-                    onPressed: () =>
-                        _verify(video['video_id'] as int, 'approved'),
-                  ),
-                  _videoActionButton(
-                    label: 'Reject',
-                    icon: Icons.cancel,
-                    color: Colors.red,
-                    onPressed: () =>
-                        _verify(video['video_id'] as int, 'rejected'),
-                  ),
-                  _videoActionButton(
-                    label: 'Re-record',
-                    icon: Icons.autorenew,
-                    color: const Color(0xFF6A1B9A),
-                    onPressed: () => _openReplaceVideo(video),
-                  ),
-                ],
-              ),
+              child: const SizedBox.shrink(),
             ),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
@@ -1785,11 +1758,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Future<void> _verify(int id, String status) async {
-    await ApiService.verifyVideo(id, status);
-    await _load();
-  }
-
   Color _videoStatusColor(String status) {
     switch (status) {
       case 'approved':
@@ -1801,60 +1769,5 @@ class _AdminDashboardState extends State<AdminDashboard> {
       default:
         return Colors.orange;
     }
-  }
-
-  Widget _videoActionButton({
-    required String label,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return SizedBox(
-      height: 32,
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 16, color: color),
-        label: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: color,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          visualDensity: VisualDensity.compact,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          foregroundColor: color,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openReplaceVideo(Map<String, dynamic> video) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.92,
-        minChildSize: 0.75,
-        maxChildSize: 0.98,
-        builder: (context, scrollController) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SingleChildScrollView(
-              controller: scrollController,
-              child: VideoReplaceSheet(video: video, onReplaced: _load),
-            ),
-          );
-        },
-      ),
-    );
   }
 }
