@@ -48,7 +48,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
   Future<void> _setVideoStatus(String status) async {
     final rawId = _video['video_id'];
-    final videoId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    final videoId = rawId is int
+        ? rawId
+        : int.tryParse(rawId?.toString() ?? '');
     if (videoId == null) return;
 
     final res = await ApiService.verifyVideo(videoId, status);
@@ -57,9 +59,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     if (res['statusCode'] == 200) {
       await _reloadVideo();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Video ${status.toLowerCase()}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Video ${status.toLowerCase()}')));
       return;
     }
 
@@ -369,12 +371,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 runSpacing: 12,
                 children: [
                   FilledButton.icon(
-                    onPressed: isApproved ? null : () => _setVideoStatus('approved'),
+                    onPressed: isApproved
+                        ? null
+                        : () => _setVideoStatus('approved'),
                     icon: const Icon(Icons.check_circle),
                     label: const Text('Approve Video'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: isRejected ? null : () => _setVideoStatus('rejected'),
+                    onPressed: isRejected
+                        ? null
+                        : () => _setVideoStatus('rejected'),
                     icon: const Icon(Icons.cancel),
                     label: const Text('Reject Video'),
                     style: OutlinedButton.styleFrom(
