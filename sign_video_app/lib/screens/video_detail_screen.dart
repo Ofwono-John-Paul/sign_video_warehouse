@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/api_service.dart';
+import 'video_replace_sheet.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final Map<String, dynamic> video;
@@ -16,21 +17,41 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   ChewieController? _chewieController;
   String? _errorMsg;
   bool _initializing = true;
+  late Map<String, dynamic> _video;
 
   @override
   void initState() {
     super.initState();
+    _video = Map<String, dynamic>.from(widget.video);
     _initPlayer();
+  }
+
+  Future<void> _reloadVideo() async {
+    final rawId = _video['video_id'];
+    final videoId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    if (videoId == null) return;
+
+    try {
+      final res = await ApiService.getVideo(videoId);
+      if (!mounted) return;
+      if (res['statusCode'] == 200 && res['body'] is Map<String, dynamic>) {
+        setState(() {
+          _video = Map<String, dynamic>.from(res['body'] as Map);
+        });
+      }
+    } catch (_) {
+      // Keep the current details if refresh fails.
+    }
   }
 
   Future<void> _initPlayer() async {
     var url = ApiService.getVideoUrl(
-      widget.video['playback_url']?.toString() ??
-          widget.video['video_url']?.toString() ??
-          widget.video['file_path']?.toString(),
+      _video['playback_url']?.toString() ??
+          _video['video_url']?.toString() ??
+          _video['file_path']?.toString(),
     );
 
-    final rawId = widget.video['video_id'];
+        final rawId = _video['video_id'];
     final videoId = rawId is int
         ? rawId
         : int.tryParse(rawId?.toString() ?? '');
@@ -46,6 +67,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           );
           if (freshUrl.isNotEmpty) {
             url = freshUrl;
+            if (mounted) {
+              setState(() {
+                _video = fresh;
+              });
+            }
           }
         }
       } catch (_) {
@@ -182,11 +208,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final status = widget.video['verified_status']?.toString() ?? 'pending';
+    final status = _video['status']?.toString() ??
+        _video['verified_status']?.toString() ??
+        'pending';
     final isApproved = status == 'approved';
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.video['gloss_label'] ?? 'Video Detail'),
+        title: Text(_video['gloss_label'] ?? 'Video Detail'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
       ),
@@ -245,76 +273,136 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 context,
                 Icons.label,
                 'Gloss Label',
-                widget.video['gloss_label']?.toString(),
+                _video['gloss_label']?.toString(),
               ),
               _row(
                 context,
                 Icons.language,
                 'Language',
-                widget.video['language']?.toString(),
+                _video['language']?.toString(),
               ),
               _row(
                 context,
                 Icons.type_specimen,
                 'Sentence Type',
-                widget.video['sentence_type']?.toString(),
+                _video['sentence_type']?.toString(),
               ),
               _row(
                 context,
                 Icons.category,
                 'Category',
-                widget.video['category']?.toString(),
+                _video['category']?.toString(),
               ),
               _row(
                 context,
                 Icons.person,
                 'Uploader',
-                widget.video['uploader']?.toString(),
+                _video['uploader']?.toString(),
               ),
               _row(
                 context,
                 Icons.business,
                 'School',
-                widget.video['school_name']?.toString(),
+                _video['school_name']?.toString(),
               ),
               _row(
                 context,
                 Icons.location_on,
                 'Region',
-                widget.video['region']?.toString(),
+                _video['region']?.toString(),
               ),
               _row(
                 context,
                 Icons.location_city,
                 'District',
-                widget.video['district']?.toString(),
+                _video['district']?.toString(),
               ),
               _row(
                 context,
                 Icons.calendar_today,
                 'Upload Date',
-                widget.video['upload_date']?.toString(),
+                _video['upload_date']?.toString(),
               ),
               _row(
                 context,
                 Icons.timer,
                 'Duration',
-                widget.video['duration'] != null
-                    ? '${widget.video['duration']} sec'
+                _video['duration'] != null
+                  ? '${_video['duration']} sec'
                     : null,
               ),
               _row(
                 context,
                 Icons.storage,
                 'File Size',
-                widget.video['file_size_kb'] != null
-                    ? '${(widget.video['file_size_kb'] as num).toStringAsFixed(1)} KB'
+                _video['file_size_kb'] != null
+                    ? '${(_video['file_size_kb'] as num).toStringAsFixed(1)} KB'
                     : null,
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: isApproved
+                        ? null
+                        : () async {
+                            final rawId = _video['video_id'];
+                            final videoId = rawId is int
+                                ? rawId
+                                : int.tryParse(rawId?.toString() ?? '');
+                            if (videoId == null) return;
+                            final res = await ApiService.verifyVideo(
+                              videoId,
+                              'approved',
+                            );
+                            if (!mounted) return;
+                            if (res['statusCode'] == 200) {
+                              await _reloadVideo();
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Video approved'),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Could not approve video'),
+                                ),
+                              );
+                            }
+                          },
+                    icon: const Icon(Icons.check_circle),
+                    label: const Text('Approve Video'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => Padding(
+                          padding: EdgeInsets.only(
+                            bottom: MediaQuery.of(context).viewInsets.bottom,
+                          ),
+                          child: VideoReplaceSheet(
+                            video: _video,
+                            onReplaced: _reloadVideo,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.autorenew),
+                    label: const Text('Re-record Video'),
+                  ),
+                ],
               ),
               const Divider(),
               const SizedBox(height: 8),
               Text(
-                'Video ID: ${widget.video['video_id']}',
+                'Video ID: ${_video['video_id']}',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
