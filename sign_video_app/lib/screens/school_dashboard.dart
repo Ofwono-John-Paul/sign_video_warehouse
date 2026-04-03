@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 import 'upload_screen.dart';
 import 'video_detail_screen.dart';
 import 'login_screen.dart';
@@ -22,8 +23,12 @@ class _SchoolDashboardState extends State<SchoolDashboard>
   String _schoolName = '';
 
   static const _categoryColors = [
-    Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFE65100),
-    Color(0xFF6A1B9A), Color(0xFF00838F), Color(0xFFF57F17),
+    Color(0xFF1565C0),
+    Color(0xFF2E7D32),
+    Color(0xFFE65100),
+    Color(0xFF6A1B9A),
+    Color(0xFF00838F),
+    Color(0xFFF57F17),
     Color(0xFFC62828),
   ];
 
@@ -52,7 +57,7 @@ class _SchoolDashboardState extends State<SchoolDashboard>
       setState(() {
         _analytics = (an['body'] as Map<String, dynamic>?) ?? {};
         _schoolName = _analytics['school_name'] ?? 'My School';
-        final raw = (vids['body'] as Map?)??{};
+        final raw = (vids['body'] as Map?) ?? {};
         _videos = (raw['videos'] as List?) ?? [];
         _health = (hl['body']['facilities'] as List?) ?? [];
       });
@@ -67,7 +72,9 @@ class _SchoolDashboardState extends State<SchoolDashboard>
     await ApiService.clearToken();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
   }
 
   @override
@@ -79,6 +86,7 @@ class _SchoolDashboardState extends State<SchoolDashboard>
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
         actions: [
+          const InstallButton(),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
@@ -95,8 +103,9 @@ class _SchoolDashboardState extends State<SchoolDashboard>
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const UploadScreen())).then((_) => _load()),
+        onPressed: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const UploadScreen()))
+            .then((_) => _load()),
         icon: const Icon(Icons.upload),
         label: const Text('Upload Sign'),
         backgroundColor: cs.primary,
@@ -113,12 +122,12 @@ class _SchoolDashboardState extends State<SchoolDashboard>
 
   // ── Overview tab ───────────────────────────────────────────────────────────
   Widget _overviewTab(ColorScheme cs) {
-    final total    = _analytics['total_uploads']    ?? 0;
-    final approved = _analytics['approved']         ?? 0;
-    final pending  = _analytics['pending']          ?? 0;
-    final rejected = _analytics['rejected']         ?? 0;
-    final cats     = (_analytics['by_category'] as List?) ?? [];
-    final trend    = (_analytics['monthly_trend'] as List?) ?? [];
+    final total = _analytics['total_uploads'] ?? 0;
+    final approved = _analytics['approved'] ?? 0;
+    final pending = _analytics['pending'] ?? 0;
+    final rejected = _analytics['rejected'] ?? 0;
+    final cats = (_analytics['by_category'] as List?) ?? [];
+    final trend = (_analytics['monthly_trend'] as List?) ?? [];
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -127,14 +136,37 @@ class _SchoolDashboardState extends State<SchoolDashboard>
         children: [
           // ── Stat cards ──────────────────────────────────────────────────
           GridView.count(
-            crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12,
-            shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
             childAspectRatio: 1.8,
             children: [
-              _statCard('Total', total.toString(),   Icons.video_file,   cs.primary),
-              _statCard('Approved', approved.toString(), Icons.check_circle, Colors.green),
-              _statCard('Pending', pending.toString(),   Icons.hourglass_top, Colors.orange),
-              _statCard('Rejected', rejected.toString(),  Icons.cancel,       Colors.red),
+              _statCard(
+                'Total',
+                total.toString(),
+                Icons.video_file,
+                cs.primary,
+              ),
+              _statCard(
+                'Approved',
+                approved.toString(),
+                Icons.check_circle,
+                Colors.green,
+              ),
+              _statCard(
+                'Pending',
+                pending.toString(),
+                Icons.hourglass_top,
+                Colors.orange,
+              ),
+              _statCard(
+                'Rejected',
+                rejected.toString(),
+                Icons.cancel,
+                Colors.red,
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -143,18 +175,25 @@ class _SchoolDashboardState extends State<SchoolDashboard>
             _cardTitle('Categories Uploaded'),
             SizedBox(
               height: 220,
-              child: PieChart(PieChartData(
-                sections: cats.asMap().entries.map((e) {
-                  final i = e.key; final d = e.value as Map;
-                  return PieChartSectionData(
-                    value: (d['count'] as num).toDouble(),
-                    title: '${d['sign_category']}\n${d['count']}',
-                    color: _categoryColors[i % _categoryColors.length],
-                    radius: 80, titleStyle: const TextStyle(fontSize: 10, color: Colors.white),
-                  );
-                }).toList(),
-                sectionsSpace: 2,
-              )),
+              child: PieChart(
+                PieChartData(
+                  sections: cats.asMap().entries.map((e) {
+                    final i = e.key;
+                    final d = e.value as Map;
+                    return PieChartSectionData(
+                      value: (d['count'] as num).toDouble(),
+                      title: '${d['sign_category']}\n${d['count']}',
+                      color: _categoryColors[i % _categoryColors.length],
+                      radius: 80,
+                      titleStyle: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white,
+                      ),
+                    );
+                  }).toList(),
+                  sectionsSpace: 2,
+                ),
+              ),
             ),
             const SizedBox(height: 20),
           ],
@@ -163,36 +202,64 @@ class _SchoolDashboardState extends State<SchoolDashboard>
             _cardTitle('Monthly Upload Trend'),
             SizedBox(
               height: 160,
-              child: LineChart(LineChartData(
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: trend.asMap().entries.map((e) =>
-                        FlSpot(e.key.toDouble(), (e.value['count'] as num).toDouble())).toList(),
-                    isCurved: true,
-                    color: cs.primary,
-                    barWidth: 3,
-                    belowBarData: BarAreaData(show: true,
-                        color: cs.primary.withOpacity(0.15)),
-                    dotData: const FlDotData(show: false),
+              child: LineChart(
+                LineChartData(
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: trend
+                          .asMap()
+                          .entries
+                          .map(
+                            (e) => FlSpot(
+                              e.key.toDouble(),
+                              (e.value['count'] as num).toDouble(),
+                            ),
+                          )
+                          .toList(),
+                      isCurved: true,
+                      color: cs.primary,
+                      barWidth: 3,
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: cs.primary.withOpacity(0.15),
+                      ),
+                      dotData: const FlDotData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 24,
+                        getTitlesWidget: (v, _) {
+                          final idx = v.toInt();
+                          if (idx < 0 || idx >= trend.length)
+                            return const SizedBox.shrink();
+                          final m = (trend[idx]['month'] as String?) ?? '';
+                          return Text(
+                            m.length >= 7 ? m.substring(5) : m,
+                            style: const TextStyle(fontSize: 10),
+                          );
+                        },
+                      ),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 28,
+                      ),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                   ),
-                ],
-                titlesData: FlTitlesData(
-                  bottomTitles: AxisTitles(sideTitles: SideTitles(
-                      showTitles: true, reservedSize: 24,
-                      getTitlesWidget: (v, _) {
-                        final idx = v.toInt();
-                        if (idx < 0 || idx >= trend.length) return const SizedBox.shrink();
-                        final m = (trend[idx]['month'] as String?) ?? '';
-                        return Text(m.length >= 7 ? m.substring(5) : m,
-                            style: const TextStyle(fontSize: 10));
-                      })),
-                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  gridData: const FlGridData(show: true),
+                  borderData: FlBorderData(show: true),
                 ),
-                gridData: const FlGridData(show: true),
-                borderData: FlBorderData(show: true),
-              )),
+              ),
             ),
           ],
         ],
@@ -205,27 +272,47 @@ class _SchoolDashboardState extends State<SchoolDashboard>
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(width: 12),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ]),
-        ]),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _cardTitle(String t) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text(t, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+    child: Text(
+      t,
+      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+    ),
   );
 
   // ── Videos tab ─────────────────────────────────────────────────────────────
   Widget _videosTab(ColorScheme cs) {
     if (_videos.isEmpty) {
-      return const Center(child: Text('No videos yet. Upload your first sign!'));
+      return const Center(
+        child: Text('No videos yet. Upload your first sign!'),
+      );
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -238,9 +325,14 @@ class _SchoolDashboardState extends State<SchoolDashboard>
           final status = v['verified_status'] ?? 'pending';
           Color statusColor;
           switch (status) {
-            case 'approved': statusColor = Colors.green; break;
-            case 'rejected': statusColor = Colors.red; break;
-            default:         statusColor = Colors.orange;
+            case 'approved':
+              statusColor = Colors.green;
+              break;
+            case 'rejected':
+              statusColor = Colors.red;
+              break;
+            default:
+              statusColor = Colors.orange;
           }
           return ListTile(
             leading: CircleAvatar(
@@ -248,15 +340,21 @@ class _SchoolDashboardState extends State<SchoolDashboard>
               child: Icon(Icons.sign_language, color: cs.primary),
             ),
             title: Text(v['gloss_label'] ?? 'Untitled'),
-            subtitle: Text('${v['sign_category'] ?? 'General'} · ${v['upload_date'] ?? ''}'),
+            subtitle: Text(
+              '${v['sign_category'] ?? 'General'} · ${v['upload_date'] ?? ''}',
+            ),
             trailing: Chip(
-              label: Text(status, style: const TextStyle(fontSize: 11, color: Colors.white)),
+              label: Text(
+                status,
+                style: const TextStyle(fontSize: 11, color: Colors.white),
+              ),
               backgroundColor: statusColor,
               padding: EdgeInsets.zero,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => VideoDetailScreen(video: v))),
+              MaterialPageRoute(builder: (_) => VideoDetailScreen(video: v)),
+            ),
           );
         },
       ),
@@ -277,20 +375,30 @@ class _SchoolDashboardState extends State<SchoolDashboard>
         final deaf = h['deaf_friendly'] == true;
         return ListTile(
           leading: CircleAvatar(
-            backgroundColor: deaf ? Colors.green.shade100 : Colors.grey.shade200,
-            child: Icon(Icons.local_hospital,
-                color: deaf ? Colors.green : Colors.grey),
+            backgroundColor: deaf
+                ? Colors.green.shade100
+                : Colors.grey.shade200,
+            child: Icon(
+              Icons.local_hospital,
+              color: deaf ? Colors.green : Colors.grey,
+            ),
           ),
           title: Text(h['name'] ?? 'Unknown'),
-          subtitle: Text('${h['facility_type'] ?? ''} · ${h['district'] ?? ''}'),
+          subtitle: Text(
+            '${h['facility_type'] ?? ''} · ${h['district'] ?? ''}',
+          ),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('${((h['distance_km'] as num?)?.toStringAsFixed(1)) ?? '?'} km',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                '${((h['distance_km'] as num?)?.toStringAsFixed(1)) ?? '?'} km',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               if (deaf)
-                const Text('Deaf-friendly',
-                    style: TextStyle(fontSize: 10, color: Colors.green)),
+                const Text(
+                  'Deaf-friendly',
+                  style: TextStyle(fontSize: 10, color: Colors.green),
+                ),
             ],
           ),
         );

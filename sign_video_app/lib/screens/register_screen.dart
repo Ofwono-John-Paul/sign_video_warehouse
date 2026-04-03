@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -53,7 +54,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Account')),
+      appBar: AppBar(
+        title: const Text('Create Account'),
+        actions: const [InstallButton()],
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(

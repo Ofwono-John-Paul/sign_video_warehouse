@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 import 'video_replace_sheet.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -245,6 +246,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         title: Text(_video['gloss_label'] ?? 'Video Detail'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
+        actions: const [InstallButton()],
       ),
       body: SafeArea(
         child: SingleChildScrollView(

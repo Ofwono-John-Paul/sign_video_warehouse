@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 import 'login_screen.dart';
 
 class RegisterSchoolScreen extends StatefulWidget {
@@ -89,6 +90,7 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
         title: const Text('Register School'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
+        actions: const [InstallButton()],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

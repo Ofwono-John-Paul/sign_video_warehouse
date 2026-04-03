@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 import 'login_screen.dart';
 import 'upload_screen.dart';
 import 'video_detail_screen.dart';
@@ -11,7 +12,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _searchCtrl   = TextEditingController();
+  final _searchCtrl = TextEditingController();
   final _languageCtrl = TextEditingController();
   final _categoryCtrl = TextEditingController();
   List<dynamic> _videos = [];
@@ -25,10 +26,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchVideos() async {
-    setState(() { _loading = true; _error = ''; });
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
     try {
       final res = await ApiService.getVideos(
-        search:   _searchCtrl.text.trim(),
+        search: _searchCtrl.text.trim(),
         language: _languageCtrl.text.trim(),
         category: _categoryCtrl.text.trim(),
       );
@@ -50,9 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _logout() async {
     await ApiService.clearToken();
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
   }
 
   @override
@@ -64,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
         actions: [
+          const InstallButton(),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
@@ -73,9 +78,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const UploadScreen()),
-          );
+          await Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const UploadScreen()));
           _fetchVideos(); // refresh after upload
         },
         icon: const Icon(Icons.upload_file),
@@ -96,7 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.clear),
-                      onPressed: () { _searchCtrl.clear(); _fetchVideos(); },
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        _fetchVideos();
+                      },
                     ),
                     isDense: true,
                   ),
@@ -173,14 +181,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: _videos.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 8),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
                   itemBuilder: (context, i) {
                     final v = _videos[i];
                     return Card(
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: cs.primaryContainer,
-                          child: Icon(Icons.videocam, color: cs.onPrimaryContainer),
+                          child: Icon(
+                            Icons.videocam,
+                            color: cs.onPrimaryContainer,
+                          ),
                         ),
                         title: Text(
                           v['gloss_label'] ?? '—',
@@ -192,7 +204,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         isThreeLine: true,
                         trailing: v['verified_status'] == 'approved'
-                            ? const Icon(Icons.check_circle, color: Colors.green)
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
                             : const Icon(Icons.pending, color: Colors.orange),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
