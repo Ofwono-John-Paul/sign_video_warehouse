@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../services/api_service.dart';
+import '../services/video_download_service.dart';
 import '../widgets/install_button.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
@@ -39,6 +40,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> _mapData = {};
   List<dynamic> _schools = [];
   List<dynamic> _videos = [];
+  final Set<int> _selectedVideoIds = <int>{};
+  bool _selectionMode = false;
 
   String _selectedRegion = 'All';
   int? _selectedSchoolId;
@@ -223,6 +226,88 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (_granularity == value) return;
     setState(() => _granularity = value);
     await _load();
+  }
+
+  Future<void> _downloadVideo(Map<String, dynamic> video) async {
+    final url = _videoDownloadUrl(video);
+    if (url.isEmpty) {
+      _showMessage('No downloadable video URL available for this item.');
+      return;
+    }
+
+    await VideoDownloadService.instance.download(
+      url: url,
+      fileName: _downloadFileName(video),
+    );
+  }
+
+  Future<void> _downloadSelectedVideos() async {
+    final selected = _videosTyped
+        .where(
+          (video) => _selectedVideoIds.contains(
+            _toInt(video['video_id'] ?? video['id']),
+          ),
+        )
+        .toList();
+    if (selected.isEmpty) {
+      _showMessage('Select at least one video to download.');
+      return;
+    }
+
+    for (final video in selected) {
+      await _downloadVideo(video);
+    }
+
+    if (!mounted) return;
+    _showMessage('Started downloading ${selected.length} video(s).');
+  }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) {
+        _selectedVideoIds.clear();
+      }
+    });
+  }
+
+  void _toggleVideoSelection(Map<String, dynamic> video) {
+    final videoId = _toInt(video['video_id'] ?? video['id']);
+    if (videoId <= 0) return;
+    setState(() {
+      if (_selectedVideoIds.contains(videoId)) {
+        _selectedVideoIds.remove(videoId);
+      } else {
+        _selectedVideoIds.add(videoId);
+      }
+      _selectionMode = true;
+    });
+  }
+
+  String _videoDownloadUrl(Map<String, dynamic> video) {
+    final raw =
+        video['playback_url']?.toString() ??
+        video['video_url']?.toString() ??
+        video['file_path']?.toString() ??
+        '';
+    return ApiService.getVideoUrl(raw);
+  }
+
+  String _downloadFileName(Map<String, dynamic> video) {
+    final baseName = _safeText(video['gloss_label'], fallback: 'video')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    final id = _toInt(video['video_id'] ?? video['id']);
+    final suffix = id > 0 ? '_$id' : '';
+    return '${baseName.isEmpty ? 'video' : baseName}$suffix.mp4';
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   List<Map<String, dynamic>> _filteredSchoolOptions() {
@@ -710,59 +795,132 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (_videosTyped.isEmpty) {
       return const Center(child: Text('No videos yet.'));
     }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: _videosTyped.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (_, index) {
-          final video = _videosTyped[index];
-          final status =
-              video['status']?.toString() ??
-              video['verified_status']?.toString() ??
-              'pending';
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: cs.primaryContainer,
-              child: Icon(Icons.sign_language, color: cs.primary, size: 20),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Card(
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            title: Text(
-              video['gloss_label']?.toString() ?? 'Untitled',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${video['school_name'] ?? 'Individual'} · ${video['region'] ?? 'Unknown region'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Chip(
-                  label: Text(
-                    status,
-                    style: const TextStyle(fontSize: 10, color: Colors.white),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Switch(
+                    value: _selectionMode,
+                    onChanged: (_) => _toggleSelectionMode(),
                   ),
-                  backgroundColor: _videoStatusColor(status),
-                  padding: EdgeInsets.zero,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.black38),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => VideoDetailScreen(video: video),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _selectionMode
+                          ? '${_selectedVideoIds.length} selected'
+                          : 'Select videos to download',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _selectionMode ? _downloadSelectedVideos : null,
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download selected'),
+                  ),
+                ],
               ),
             ),
-          );
-        },
-      ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: _videosTyped.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, index) {
+                final video = _videosTyped[index];
+                final status =
+                    video['status']?.toString() ??
+                    video['verified_status']?.toString() ??
+                    'pending';
+                final videoId = _toInt(video['video_id'] ?? video['id']);
+                final selected = _selectedVideoIds.contains(videoId);
+                return ListTile(
+                  leading: _selectionMode
+                      ? Checkbox(
+                          value: selected,
+                          onChanged: (_) => _toggleVideoSelection(video),
+                        )
+                      : CircleAvatar(
+                          backgroundColor: cs.primaryContainer,
+                          child: Icon(
+                            Icons.sign_language,
+                            color: cs.primary,
+                            size: 20,
+                          ),
+                        ),
+                  title: Text(
+                    video['gloss_label']?.toString() ?? 'Untitled',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${video['school_name'] ?? 'Individual'} · ${video['region'] ?? 'Unknown region'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Chip(
+                        label: Text(
+                          status,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                          ),
+                        ),
+                        backgroundColor: _videoStatusColor(status),
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Download video',
+                        icon: const Icon(Icons.download_outlined),
+                        onPressed: () => _downloadVideo(video),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.black38),
+                    ],
+                  ),
+                  selected: selected,
+                  onTap: () {
+                    if (_selectionMode) {
+                      _toggleVideoSelection(video);
+                      return;
+                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => VideoDetailScreen(video: video),
+                      ),
+                    );
+                  },
+                  onLongPress: () => _toggleVideoSelection(video),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
