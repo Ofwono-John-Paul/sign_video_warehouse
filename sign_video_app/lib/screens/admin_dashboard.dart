@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../services/api_service.dart';
+import '../widgets/install_button.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
 
@@ -269,6 +270,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             backgroundColor: cs.primary,
             foregroundColor: cs.onPrimary,
             actions: [
+              const InstallButton(),
               IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
               IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
             ],

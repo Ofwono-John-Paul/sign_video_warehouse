@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'services/install_prompt_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/school_dashboard.dart';
@@ -9,8 +10,19 @@ void main() {
   runApp(const SignVideoApp());
 }
 
-class SignVideoApp extends StatelessWidget {
+class SignVideoApp extends StatefulWidget {
   const SignVideoApp({super.key});
+
+  @override
+  State<SignVideoApp> createState() => _SignVideoAppState();
+}
+
+class _SignVideoAppState extends State<SignVideoApp> {
+  @override
+  void initState() {
+    super.initState();
+    InstallPromptService.instance.initialize();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +42,9 @@ class SignVideoApp extends StatelessWidget {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         ),
       ),
@@ -57,9 +71,9 @@ class _SplashState extends State<_Splash> {
     final token = prefs.getString('access_token');
     if (!mounted) return;
     if (token == null) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
       return;
     }
     final role = prefs.getString('role') ?? 'SCHOOL_USER';
@@ -72,14 +86,13 @@ class _SplashState extends State<_Splash> {
     } else {
       dest = const HomeScreen();
     }
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => dest));
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => dest));
   }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
-

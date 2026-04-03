@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:typed_data';
 
+import '../widgets/install_button.dart';
+
 class LiveVideoCaptureResult {
   final String fileName;
   final String filePath;
@@ -61,7 +63,9 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
         return;
       }
 
-      final front = cams.where((c) => c.lensDirection == CameraLensDirection.front);
+      final front = cams.where(
+        (c) => c.lensDirection == CameraLensDirection.front,
+      );
       final selected = front.isNotEmpty ? front.first : cams.first;
 
       final controller = CameraController(
@@ -131,7 +135,8 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
       final file = await controller.stopVideoRecording();
       if (!mounted) return;
 
-      final uri = file.path.startsWith('http') ||
+      final uri =
+          file.path.startsWith('http') ||
               file.path.startsWith('blob:') ||
               file.path.startsWith('file:')
           ? Uri.parse(file.path)
@@ -180,7 +185,8 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
       final bytes = await file.readAsBytes();
       if (!mounted) return;
 
-      final fallback = 'live_recording_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      final fallback =
+          'live_recording_${DateTime.now().millisecondsSinceEpoch}.mp4';
       Navigator.of(context).pop(
         LiveVideoCaptureResult(
           fileName: file.name.isNotEmpty ? file.name : fallback,
@@ -203,7 +209,8 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    final cameraReady = _cameraController != null && _cameraController!.value.isInitialized;
+    final cameraReady =
+        _cameraController != null && _cameraController!.value.isInitialized;
     final hasPreview = _previewController != null && _recorded != null;
 
     return Scaffold(
@@ -211,6 +218,7 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
         title: const Text('Live Camera Recording'),
         backgroundColor: cs.primary,
         foregroundColor: cs.onPrimary,
+        actions: const [InstallButton()],
       ),
       body: SafeArea(
         child: Padding(
@@ -240,7 +248,8 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
                         )
                       : hasPreview
                       ? AspectRatio(
-                          aspectRatio: _previewController!.value.aspectRatio == 0
+                          aspectRatio:
+                              _previewController!.value.aspectRatio == 0
                               ? 16 / 9
                               : _previewController!.value.aspectRatio,
                           child: VideoPlayer(_previewController!),
@@ -281,10 +290,14 @@ class _LiveRecordScreenState extends State<LiveRecordScreen> {
                         onPressed: _busy
                             ? null
                             : (_isRecording ? _stopRecording : _startRecording),
-                        icon: Icon(_isRecording ? Icons.stop : Icons.fiber_manual_record),
+                        icon: Icon(
+                          _isRecording ? Icons.stop : Icons.fiber_manual_record,
+                        ),
                         label: Text(_isRecording ? 'Stop' : 'Record'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: _isRecording ? Colors.red : cs.primary,
+                          backgroundColor: _isRecording
+                              ? Colors.red
+                              : cs.primary,
                         ),
                       ),
                     ),
