@@ -1,1 +1,1 @@
-web: sh -c "FLASK_APP=manage.py flask db upgrade && uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"
+web: sh -c "FLASK_APP=manage.py flask db upgrade && python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"
