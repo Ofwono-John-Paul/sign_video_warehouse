@@ -2,13 +2,27 @@
 Uganda Sign Language Crowdsourcing Platform  v2.0
 Backend: FastAPI + PostgreSQL (OLTP + DW Hybrid Star Schema)
 """
-import os, math, re
+import asyncio
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import uuid
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import cloudinary
 import cloudinary.uploader
+
+try:
+    import imageio_ffmpeg
+except ImportError:
+    imageio_ffmpeg = None
 
 from fastapi import (
     FastAPI, Depends, HTTPException, UploadFile, File,
@@ -59,6 +73,32 @@ VERIFIED     = ['pending', 'approved', 'rejected', 'replaced']
 engine       = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base         = declarative_base()
+
+VIDEO_STORAGE_ROOT = Path(__file__).resolve().parent / 'uploads'
+VIDEO_RAW_DIR = VIDEO_STORAGE_ROOT / 'raw'
+VIDEO_CONVERTED_DIR = VIDEO_STORAGE_ROOT / 'converted'
+VIDEO_ARCHIVE_DIR = VIDEO_STORAGE_ROOT / 'archive'
+for _directory in (VIDEO_STORAGE_ROOT, VIDEO_RAW_DIR, VIDEO_CONVERTED_DIR, VIDEO_ARCHIVE_DIR):
+    _directory.mkdir(parents=True, exist_ok=True)
+
+ARCHIVE_ORIGINAL_UPLOADS = os.getenv('ARCHIVE_ORIGINAL_UPLOADS', '').strip().lower() in {
+    '1', 'true', 'yes', 'on',
+}
+
+SUPPORTED_VIDEO_EXTENSIONS = {
+    '.mp4', '.mov', '.avi', '.mkv', '.m4v', '.3gp', '.webm', '.mpeg', '.mpg', '.mts', '.m2ts',
+}
+
+SUPPORTED_VIDEO_CONTENT_TYPES = {
+    'video/mp4',
+    'video/quicktime',
+    'video/x-msvideo',
+    'video/x-matroska',
+    'video/webm',
+    'video/3gpp',
+    'video/mpeg',
+    'application/octet-stream',
+}
 
 
 def get_db():
@@ -118,6 +158,8 @@ class Video(Base):
     school_id        = Column(Integer, nullable=True)
     uploader_id      = Column(Integer, nullable=True)
     file_path        = Column(Text,    nullable=False)
+    original_format  = Column(String(50), nullable=True)
+    conversion_status = Column(String(20), nullable=False, default='converted')
     gloss_label      = Column(String(200))
     language_variant = Column(String(100))
     sign_category    = Column(String(100))
@@ -228,6 +270,33 @@ class DimVideo(Base):
 Base.metadata.create_all(bind=engine)
 
 
+def _ensure_video_conversion_schema():
+    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+        return
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'videos'
+                ) THEN
+                    ALTER TABLE public.videos
+                        ADD COLUMN IF NOT EXISTS original_format VARCHAR(50),
+                        ADD COLUMN IF NOT EXISTS conversion_status VARCHAR(20);
+
+                    UPDATE public.videos
+                    SET conversion_status = COALESCE(conversion_status, 'converted')
+                    WHERE conversion_status IS NULL;
+                END IF;
+            END $$;
+            """
+        )
+
+
 def _ensure_video_replacement_schema():
     if not DATABASE_URL or engine.dialect.name != 'postgresql':
         return
@@ -259,7 +328,183 @@ def _ensure_video_replacement_schema():
         )
 
 
+_ensure_video_conversion_schema()
 _ensure_video_replacement_schema()
+
+
+def _normalize_original_format(filename: str, content_type: str) -> str:
+    ext = Path(filename or '').suffix.lower().lstrip('.')
+    if ext:
+        return ext
+    if content_type:
+        return content_type.split('/', 1)[-1].replace('x-', '')
+    return 'unknown'
+
+
+def _looks_like_supported_video(filename: str, content_type: str) -> bool:
+    ext = Path(filename or '').suffix.lower()
+    normalized_content_type = (content_type or '').strip().lower()
+    return ext in SUPPORTED_VIDEO_EXTENSIONS or normalized_content_type in SUPPORTED_VIDEO_CONTENT_TYPES
+
+
+def _validate_video_file(path: Path) -> None:
+    ffmpeg_path = _resolve_ffmpeg_binary('ffmpeg')
+    probe = subprocess.run(
+        [
+            ffmpeg_path,
+            '-v', 'error',
+            '-i',
+            str(path),
+            '-f',
+            'null',
+            '-',
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        raise HTTPException(
+            status_code=400,
+            detail='Uploaded file is not a valid or readable video.',
+        )
+
+    if probe.returncode != 0:
+        raise HTTPException(
+            status_code=400,
+            detail='Uploaded file is not a valid or readable video.',
+        )
+
+
+def _convert_to_browser_mp4(input_path: Path, output_path: Path) -> None:
+    ffmpeg_path = _resolve_ffmpeg_binary('ffmpeg')
+    command = [
+        ffmpeg_path,
+        '-y',
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-i', str(input_path),
+        '-map', '0:v:0',
+        '-map', '0:a?',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', '+faststart',
+        str(output_path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or 'FFmpeg conversion failed').strip()
+        raise HTTPException(status_code=400, detail=message)
+
+
+def _resolve_ffmpeg_binary(binary_name: str) -> str:
+    cached = shutil.which(binary_name)
+    if cached:
+        return cached
+
+    local_app_data = Path(os.getenv('LOCALAPPDATA', ''))
+    if local_app_data:
+        win_get_packages = local_app_data / 'Microsoft' / 'WinGet' / 'Packages'
+        if win_get_packages.exists():
+            candidates = sorted(
+                win_get_packages.glob(f'**/{binary_name}.exe'),
+                key=lambda path: len(path.parts),
+            )
+            if candidates:
+                return str(candidates[0])
+
+    program_files = Path(os.getenv('ProgramFiles', r'C:\Program Files'))
+    fallback_dir = program_files / 'ffmpeg' / 'bin'
+    fallback_exe = fallback_dir / f'{binary_name}.exe'
+    if fallback_exe.exists():
+        return str(fallback_exe)
+
+    if binary_name == 'ffmpeg':
+        if imageio_ffmpeg is not None:
+            bundled = Path(imageio_ffmpeg.get_ffmpeg_exe())
+            if bundled.exists():
+                return str(bundled)
+
+    raise HTTPException(
+        status_code=500,
+        detail='FFmpeg must be installed on the server.',
+    )
+
+
+def _store_upload_as_mp4(upload: UploadFile) -> tuple[Path, str, float]:
+    filename = upload.filename or 'upload.video'
+    content_type = upload.content_type or ''
+    if not _looks_like_supported_video(filename, content_type):
+        raise HTTPException(
+            status_code=400,
+            detail='Unsupported video type. Upload MP4, MOV, AVI, MKV, M4V, 3GP, WebM, MPEG or MPG files.',
+        )
+
+    original_format = _normalize_original_format(filename, content_type)
+    suffix = Path(filename).suffix.lower() or '.video'
+    raw_path: Path | None = None
+    converted_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode='wb',
+            suffix=suffix,
+            dir=VIDEO_RAW_DIR,
+            delete=False,
+        ) as temp_file:
+            upload.file.seek(0)
+            shutil.copyfileobj(upload.file, temp_file)
+            raw_path = Path(temp_file.name)
+
+        _validate_video_file(raw_path)
+
+        converted_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex}.mp4"
+        converted_path = VIDEO_CONVERTED_DIR / converted_name
+        _convert_to_browser_mp4(raw_path, converted_path)
+
+        if ARCHIVE_ORIGINAL_UPLOADS:
+            archived_path = VIDEO_ARCHIVE_DIR / f'{converted_path.stem}{suffix}'
+            shutil.move(str(raw_path), str(archived_path))
+        elif raw_path.exists():
+            raw_path.unlink()
+
+        return converted_path, original_format, round(converted_path.stat().st_size / 1024, 1)
+    except HTTPException:
+        if converted_path and converted_path.exists():
+            converted_path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        if converted_path and converted_path.exists():
+            converted_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f'Video conversion failed: {exc}')
+    finally:
+        if raw_path and raw_path.exists() and not ARCHIVE_ORIGINAL_UPLOADS:
+            raw_path.unlink(missing_ok=True)
+
+
+def _public_video_url(video: Video) -> str:
+    if not video:
+        return ''
+
+    file_path = (video.file_path or '').strip()
+    if not file_path:
+        return ''
+
+    if file_path.startswith('http://') or file_path.startswith('https://'):
+        transformed = _to_browser_playable_video_url(file_path)
+        return transformed or file_path
+
+    if file_path.startswith('/api/'):
+        return file_path
+
+    if Path(file_path).exists():
+        return f'/api/videos/{video.id}/stream'
+
+    return file_path
 
 # Seed admin user if not present
 _seed_db = SessionLocal()
@@ -593,15 +838,10 @@ async def _handle_upload(
     db:  Session,
 ):
     try:
-        # Upload directly to Cloudinary
-        upload_result = cloudinary.uploader.upload(
-            file.file,
-            resource_type="video",
-            folder="usl_videos",
+        converted_path, original_format, size_kb = await asyncio.to_thread(
+            _store_upload_as_mp4,
+            file,
         )
-        video_url = upload_result["secure_url"]
-        playback_url = _to_browser_playable_video_url(video_url)
-        size_kb   = (upload_result.get("bytes") or 0) / 1024
 
         # If region/district not provided, fall back to school's values
         if not region and user.school_id:
@@ -618,7 +858,9 @@ async def _handle_upload(
 
         video = Video(
             school_id=user.school_id, uploader_id=user.user_id,
-            file_path=video_url,
+            file_path=str(converted_path),
+            original_format=original_format,
+            conversion_status='converted',
             gloss_label=gloss_label,
             language_variant=language,
             sign_category=sign_category or 'Other',
@@ -644,13 +886,16 @@ async def _handle_upload(
             file_size_kb=size_kb, verified_status='pending',
         )
         db.add(fact); db.commit()
+        playback_url = _public_video_url(video)
         return {'message': 'Video uploaded successfully',
             'video_id': video.id,
             'verified_status': 'pending',
             'status': 'pending',
             'video_url': playback_url,
             'playback_url': playback_url,
-            'file_path': video_url,
+            'file_path': str(converted_path),
+            'original_format': original_format,
+            'conversion_status': 'converted',
             'uploader_latitude': video.uploader_latitude,
             'uploader_longitude': video.uploader_longitude,
             'geo_source': resolved_geo_source}
@@ -720,6 +965,7 @@ async def upload_video_alt(
 def _fmt_video(v: Video, db: Session) -> dict:
     school   = db.get(School, v.school_id) if v.school_id else None
     uploader = db.query(User).filter_by(user_id=v.uploader_id).first() if v.uploader_id else None
+    playback_url = _public_video_url(v)
     return {
         'video_id':        v.id,
         'gloss_label':     v.gloss_label,
@@ -734,8 +980,10 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'uploader_longitude': v.uploader_longitude,
         'geo_source':      v.geo_source,
         'file_path':       v.file_path,
-        'video_url':       _to_browser_playable_video_url(v.file_path),
-        'playback_url':    _to_browser_playable_video_url(v.file_path),
+        'original_format':  v.original_format or '',
+        'conversion_status': v.conversion_status or 'converted',
+        'video_url':       playback_url,
+        'playback_url':    playback_url,
         'file_size_kb':    round(v.file_size_kb or 0, 1),
         'duration':        v.duration,
         'verified_status': v.verified_status,
@@ -802,6 +1050,26 @@ def get_video(video_id: int,
     return _fmt_video(v, db)
 
 
+@app.get('/api/videos/{video_id}/stream')
+def stream_video(
+    video_id: int,
+    db:   Session = Depends(get_db),
+):
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(404, detail='Video not found')
+
+    file_path = Path(video.file_path)
+    if not file_path.exists():
+        raise HTTPException(404, detail='Video file not found')
+
+    return FileResponse(
+        path=str(file_path),
+        media_type='video/mp4',
+        filename=file_path.name,
+    )
+
+
 @app.post('/api/videos/{video_id}/verify')
 def verify_video(
     video_id: int,
@@ -837,31 +1105,18 @@ async def replace_video(
     if not original:
         raise HTTPException(404, detail='Video not found')
 
-    file_name = (file.filename or '').lower()
-    file_ext = os.path.splitext(file_name)[1]
-    allowed_extensions = {'.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v', '.3gp'}
-    looks_like_video = (
-        (file.content_type or '').startswith('video/')
-        or file_ext in allowed_extensions
-        or (file.content_type or '') == 'application/octet-stream'
-    )
-    if not looks_like_video:
-        raise HTTPException(400, detail='Replacement must be a video file')
-
     try:
-        upload_result = cloudinary.uploader.upload(
-            file.file,
-            resource_type='video',
-            folder='usl_videos',
+        converted_path, original_format, size_kb = await asyncio.to_thread(
+            _store_upload_as_mp4,
+            file,
         )
-        video_url = upload_result['secure_url']
-        playback_url = _to_browser_playable_video_url(video_url)
-        size_kb = (upload_result.get('bytes') or 0) / 1024
 
         new_video = Video(
             school_id=original.school_id,
             uploader_id=user.user_id,
-            file_path=video_url,
+            file_path=str(converted_path),
+            original_format=original_format,
+            conversion_status='converted',
             gloss_label=original.gloss_label,
             language_variant=original.language_variant,
             sign_category=original.sign_category,
@@ -899,6 +1154,7 @@ async def replace_video(
         db.commit()
         db.refresh(original)
         db.refresh(new_video)
+        playback_url = _public_video_url(new_video)
 
         return {
             'message': 'Video successfully replaced',
