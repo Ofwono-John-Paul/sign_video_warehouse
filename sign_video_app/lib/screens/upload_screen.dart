@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
+import '../utils/replacement_video_preview_controller.dart';
 import 'live_record_screen.dart';
 
 class UploadScreen extends StatefulWidget {
@@ -127,22 +128,16 @@ class _UploadScreenState extends State<UploadScreen> {
     String? filePath,
     Uint8List? bytes,
   }) async {
-    Uri? uri;
-    if (filePath != null && filePath.isNotEmpty) {
-      uri =
-          filePath.startsWith('http') ||
-              filePath.startsWith('blob:') ||
-              filePath.startsWith('file:')
-          ? Uri.parse(filePath)
-          : Uri.file(filePath);
-    }
+    final controller = await createReplacementPreviewController(
+      fileName: fileName,
+      path: filePath,
+      bytes: bytes,
+    );
 
-    if (uri == null) {
+    if (controller == null) {
       _showError('Could not preview this video. Please pick another file.');
       return;
     }
-
-    final controller = VideoPlayerController.networkUrl(uri);
 
     try {
       await controller.initialize();

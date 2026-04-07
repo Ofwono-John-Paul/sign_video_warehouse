@@ -47,6 +47,19 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
+  Future<void> _retryLoad() async {
+    _vpController?.dispose();
+    _chewieController?.dispose();
+    if (!mounted) return;
+    setState(() {
+      _vpController = null;
+      _chewieController = null;
+      _errorMsg = null;
+      _initializing = true;
+    });
+    await _initPlayer();
+  }
+
   Future<void> _setVideoStatus(String status) async {
     final rawId = _video['video_id'];
     final videoId = rawId is int
@@ -108,7 +121,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     if (url.isEmpty) {
       setState(() {
-        _errorMsg = 'No video file available.';
+        _errorMsg = 'Video format not supported. Please try again.';
         _initializing = false;
       });
       return;
@@ -143,7 +156,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMsg = 'Could not load video:\n$e';
+          _errorMsg = 'Video format not supported. Please try again.';
           _initializing = false;
         });
       }
@@ -172,10 +185,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Text(
-              _errorMsg!,
-              style: const TextStyle(color: Colors.redAccent),
-              textAlign: TextAlign.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _errorMsg!,
+                  style: const TextStyle(color: Colors.redAccent),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _retryLoad,
+                  child: const Text('Retry'),
+                ),
+              ],
             ),
           ),
         ),

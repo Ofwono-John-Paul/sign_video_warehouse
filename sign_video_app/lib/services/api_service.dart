@@ -103,9 +103,13 @@ class ApiService {
                 video['video_url']?.toString() ??
                 video['file_path']?.toString(),
           );
-          if (url.isNotEmpty) {
-            video['playback_url'] = url;
-            video['video_url'] = url;
+          final fallbackUrl = video['video_id'] == null
+              ? ''
+              : '$baseUrl/api/videos/${video['video_id']}/stream';
+          final resolvedUrl = url.isNotEmpty ? url : fallbackUrl;
+          if (resolvedUrl.isNotEmpty) {
+            video['playback_url'] = resolvedUrl;
+            video['video_url'] = resolvedUrl;
           }
           return video;
         }).toList();
@@ -128,9 +132,13 @@ class ApiService {
             normalized['video_url']?.toString() ??
             normalized['file_path']?.toString(),
       );
-      if (url.isNotEmpty) {
-        normalized['playback_url'] = url;
-        normalized['video_url'] = url;
+      final fallbackUrl = normalized['video_id'] == null
+          ? ''
+          : '$baseUrl/api/videos/${normalized['video_id']}/stream';
+      final resolvedUrl = url.isNotEmpty ? url : fallbackUrl;
+      if (resolvedUrl.isNotEmpty) {
+        normalized['playback_url'] = resolvedUrl;
+        normalized['video_url'] = resolvedUrl;
       }
       return {'statusCode': res.statusCode, 'body': normalized};
     }
@@ -149,8 +157,18 @@ class ApiService {
       return value;
     }
 
-    // Legacy local paths are no longer served after moving to Cloudinary.
-    if (value.startsWith('/uploads/') || value.contains('\\')) {
+    if (value.startsWith('/api/')) {
+      return '$baseUrl$value';
+    }
+
+    if (value.startsWith('api/')) {
+      return '$baseUrl/$value';
+    }
+
+    // Local file paths are not browser-playable URLs.
+    if (value.startsWith('/uploads/') ||
+        value.contains('\\') ||
+        value.contains(':\\')) {
       return '';
     }
 
