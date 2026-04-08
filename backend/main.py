@@ -11,10 +11,12 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.request import Request as UrlRequest, urlopen
 
 import cloudinary
 import cloudinary.uploader
@@ -40,16 +42,10 @@ from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
 from jose import jwt, JWTError
 from werkzeug.security import generate_password_hash, check_password_hash
-from dotenv import load_dotenv
-
-load_dotenv()
+from db_utils import build_database_url
 
 # ── DATABASE CONFIG ────────────────────────────────────────────────────────────
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Fix for SQLAlchemy compatibility
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+DATABASE_URL = build_database_url()
 
 # ── JWT CONFIG ───────────────────────────────────────────
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "usl-secret-2026")
@@ -70,15 +66,22 @@ CATEGORIES   = ['Education', 'Health']
 VERIFIED     = ['pending', 'approved', 'rejected', 'replaced']
 
 # ── DATABASE ───────────────────────────────────────────────────────────────────
-engine       = create_engine(DATABASE_URL)
+engine       = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base         = declarative_base()
 
 VIDEO_STORAGE_ROOT = Path(__file__).resolve().parent / 'uploads'
+VIDEO_ORIGINAL_DIR = VIDEO_STORAGE_ROOT / 'original'
 VIDEO_RAW_DIR = VIDEO_STORAGE_ROOT / 'raw'
 VIDEO_CONVERTED_DIR = VIDEO_STORAGE_ROOT / 'converted'
 VIDEO_ARCHIVE_DIR = VIDEO_STORAGE_ROOT / 'archive'
-for _directory in (VIDEO_STORAGE_ROOT, VIDEO_RAW_DIR, VIDEO_CONVERTED_DIR, VIDEO_ARCHIVE_DIR):
+for _directory in (
+    VIDEO_STORAGE_ROOT,
+    VIDEO_ORIGINAL_DIR,
+    VIDEO_RAW_DIR,
+    VIDEO_CONVERTED_DIR,
+    VIDEO_ARCHIVE_DIR,
+):
     _directory.mkdir(parents=True, exist_ok=True)
 
 ARCHIVE_ORIGINAL_UPLOADS = os.getenv('ARCHIVE_ORIGINAL_UPLOADS', '').strip().lower() in {
@@ -132,6 +135,7 @@ class School(Base):
     district         = Column(String(100), nullable=False)
     contact_email    = Column(String(150), unique=True, nullable=False)
     phone            = Column(String(30))
+    address          = Column(Text)
     latitude         = Column(Float)
     longitude        = Column(Float)
     school_type      = Column(String(30),  default='Primary')
@@ -158,8 +162,10 @@ class Video(Base):
     school_id        = Column(Integer, nullable=True)
     uploader_id      = Column(Integer, nullable=True)
     file_path        = Column(Text,    nullable=False)
+    converted        = Column(Boolean, default=False, nullable=False)
+    converted_video_url = Column(Text, nullable=True)
     original_format  = Column(String(50), nullable=True)
-    conversion_status = Column(String(20), nullable=False, default='converted')
+    conversion_status = Column(String(20), nullable=False, default='completed')
     gloss_label      = Column(String(200))
     language_variant = Column(String(100))
     sign_category    = Column(String(100))
@@ -285,12 +291,14 @@ def _ensure_video_conversion_schema():
                     WHERE table_schema = 'public' AND table_name = 'videos'
                 ) THEN
                     ALTER TABLE public.videos
+                        ADD COLUMN IF NOT EXISTS converted BOOLEAN,
+                        ADD COLUMN IF NOT EXISTS converted_video_url TEXT,
                         ADD COLUMN IF NOT EXISTS original_format VARCHAR(50),
                         ADD COLUMN IF NOT EXISTS conversion_status VARCHAR(20);
 
                     UPDATE public.videos
-                    SET conversion_status = COALESCE(conversion_status, 'converted')
-                    WHERE conversion_status IS NULL;
+                    SET converted = COALESCE(converted, false),
+                        conversion_status = COALESCE(conversion_status, 'pending');
                 END IF;
             END $$;
             """
@@ -328,8 +336,58 @@ def _ensure_video_replacement_schema():
         )
 
 
+def _ensure_school_location_schema():
+    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+        return
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'schools'
+                ) THEN
+                    ALTER TABLE public.schools
+                        ADD COLUMN IF NOT EXISTS address TEXT,
+                        ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION,
+                        ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+                END IF;
+            END $$;
+            """
+        )
+
+
 _ensure_video_conversion_schema()
 _ensure_video_replacement_schema()
+_ensure_school_location_schema()
+
+
+def _geocode_address(address: str, district: str = '', region: str = '') -> tuple[float | None, float | None]:
+    query_parts = [part.strip() for part in (address, district, region, 'Uganda') if part and part.strip()]
+    if not query_parts:
+        return None, None
+
+    query = ', '.join(query_parts)
+    url = (
+        'https://nominatim.openstreetmap.org/search?'
+        f'format=jsonv2&limit=1&countrycodes=ug&q={quote(query)}'
+    )
+    request = urlopen(
+        UrlRequest(
+            url,
+            headers={'User-Agent': 'sign-video-warehouse/1.0 (school geocoding)'},
+        ),
+        timeout=15,
+    )
+    payload = json.loads(request.read().decode('utf-8'))
+    if not payload:
+        return None, None
+
+    result = payload[0]
+    return float(result['lat']), float(result['lon'])
 
 
 def _normalize_original_format(filename: str, content_type: str) -> str:
@@ -399,6 +457,15 @@ def _convert_to_browser_mp4(input_path: Path, output_path: Path) -> None:
     if result.returncode != 0:
         message = (result.stderr or result.stdout or 'FFmpeg conversion failed').strip()
         raise HTTPException(status_code=400, detail=message)
+
+
+def _normalize_conversion_status(value: Optional[str]) -> str:
+    status_value = (value or '').strip().lower()
+    if status_value == 'converted':
+        return 'completed'
+    if status_value in {'pending', 'processing', 'completed', 'failed'}:
+        return status_value
+    return 'pending'
 
 
 def _resolve_ffmpeg_binary(binary_name: str) -> str:
@@ -490,6 +557,13 @@ def _public_video_url(video: Video) -> str:
     if not video:
         return ''
 
+    if video.converted_video_url:
+        converted_path = Path(video.converted_video_url)
+        if converted_path.exists():
+            return f'/api/videos/{video.id}/stream'
+        if video.converted_video_url.startswith('http://') or video.converted_video_url.startswith('https://'):
+            return video.converted_video_url
+
     file_path = (video.file_path or '').strip()
     if not file_path:
         return ''
@@ -505,6 +579,100 @@ def _public_video_url(video: Video) -> str:
         return f'/api/videos/{video.id}/stream'
 
     return file_path
+
+
+def _video_conversion_source(video: Video) -> str:
+    if video.converted_video_url:
+        return video.converted_video_url
+    return video.file_path or ''
+
+
+def _is_video_playable(video: Video) -> bool:
+    status = _normalize_conversion_status(video.conversion_status)
+    if video.converted and status == 'completed':
+        return True
+
+    path_value = _video_conversion_source(video).strip()
+    if not path_value:
+        return False
+
+    if path_value.startswith('http://') or path_value.startswith('https://'):
+        return path_value.lower().endswith('.mp4') and status == 'completed'
+
+    return Path(path_value).exists() and Path(path_value).suffix.lower() == '.mp4' and status == 'completed'
+
+
+def _queue_existing_video_conversion(video_id: int) -> None:
+    thread = threading.Thread(
+        target=_convert_existing_video_record,
+        args=(video_id,),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _download_source_to_temp(source: str, target_dir: Path) -> Path:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='wb', delete=False, dir=target_dir) as temp_file:
+        if source.startswith('http://') or source.startswith('https://'):
+            with urlopen(source) as response:
+                shutil.copyfileobj(response, temp_file)
+        else:
+            source_path = Path(source)
+            if not source_path.exists():
+                raise FileNotFoundError(source)
+            with source_path.open('rb') as input_file:
+                shutil.copyfileobj(input_file, temp_file)
+        return Path(temp_file.name)
+
+
+def _convert_existing_video_record(video_id: int) -> None:
+    db: Session = SessionLocal()
+    try:
+        video = db.get(Video, video_id)
+        if not video:
+            return
+
+        if _is_video_playable(video):
+            video.conversion_status = 'completed'
+            video.converted = True
+            if not video.converted_video_url and video.file_path:
+                video.converted_video_url = video.file_path
+            db.commit()
+            return
+
+        video.conversion_status = 'processing'
+        db.commit()
+
+        source_ref = _video_conversion_source(video)
+        if not source_ref:
+            raise FileNotFoundError('missing source')
+
+        source_name = Path(source_ref).name or f'video_{video.id}'
+        temp_input = _download_source_to_temp(source_ref, VIDEO_RAW_DIR)
+        converted_name = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}_{uuid.uuid4().hex}.mp4"
+        converted_path = VIDEO_CONVERTED_DIR / converted_name
+        _convert_to_browser_mp4(temp_input, converted_path)
+
+        if temp_input.exists():
+            temp_input.unlink(missing_ok=True)
+
+        video.file_path = str(converted_path)
+        video.converted_video_url = str(converted_path)
+        video.converted = True
+        video.original_format = video.original_format or Path(source_name).suffix.lower().lstrip('.') or 'unknown'
+        video.file_size_kb = round(converted_path.stat().st_size / 1024, 1)
+        video.conversion_status = 'completed'
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        video = db.get(Video, video_id)
+        if video:
+            video.conversion_status = 'failed'
+            db.commit()
+        print(f'ERROR converting existing video {video_id}: {type(exc).__name__}: {exc}')
+    finally:
+        db.close()
 
 # Seed admin user if not present
 _seed_db = SessionLocal()
@@ -748,11 +916,35 @@ def register_school(data: dict, db: Session = Depends(get_db)):
 
     role = 'ADMIN' if _is_admin_email(contact_email) else 'SCHOOL_USER'
 
+    def _optional_float(value):
+        if value in (None, ''):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(400, detail='Latitude and longitude must be valid numbers')
+
+    address = (data.get('address') or '').strip()
+    latitude = _optional_float(data.get('latitude'))
+    longitude = _optional_float(data.get('longitude'))
+
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(400, detail='Enter both latitude and longitude, or leave both blank')
+
+    if latitude is None and longitude is None and address:
+        latitude, longitude = _geocode_address(address, data['district'].strip(), data['region'])
+        if latitude is None or longitude is None:
+            raise HTTPException(
+                400,
+                detail='Could not locate that address. Please refine it or enter coordinates manually.',
+            )
+
     school = School(
         name=data['school_name'].strip(), region=data['region'],
         district=data['district'].strip(), contact_email=contact_email,
         phone=(data.get('phone') or '').strip(),
-        latitude=data.get('latitude'), longitude=data.get('longitude'),
+        address=address or None,
+        latitude=latitude, longitude=longitude,
         school_type=data.get('school_type', 'Primary'),
         deaf_students=int(data.get('deaf_students') or 0),
         year_established=int(data.get('year_established') or 0) or None,
@@ -859,8 +1051,10 @@ async def _handle_upload(
         video = Video(
             school_id=user.school_id, uploader_id=user.user_id,
             file_path=str(converted_path),
+            converted=True,
+            converted_video_url=str(converted_path),
             original_format=original_format,
-            conversion_status='converted',
+            conversion_status='completed',
             gloss_label=gloss_label,
             language_variant=language,
             sign_category=sign_category or 'Other',
@@ -894,8 +1088,10 @@ async def _handle_upload(
             'video_url': playback_url,
             'playback_url': playback_url,
             'file_path': str(converted_path),
+            'converted': True,
+            'converted_video_url': str(converted_path),
             'original_format': original_format,
-            'conversion_status': 'converted',
+            'conversion_status': 'completed',
             'uploader_latitude': video.uploader_latitude,
             'uploader_longitude': video.uploader_longitude,
             'geo_source': resolved_geo_source}
@@ -980,8 +1176,10 @@ def _fmt_video(v: Video, db: Session) -> dict:
         'uploader_longitude': v.uploader_longitude,
         'geo_source':      v.geo_source,
         'file_path':       v.file_path,
+        'converted':       bool(v.converted),
+        'converted_video_url': v.converted_video_url or '',
         'original_format':  v.original_format or '',
-        'conversion_status': v.conversion_status or 'converted',
+        'conversion_status': _normalize_conversion_status(v.conversion_status),
         'video_url':       playback_url,
         'playback_url':    playback_url,
         'file_size_kb':    round(v.file_size_kb or 0, 1),
@@ -1047,6 +1245,20 @@ def get_video(video_id: int,
                 'playback_url': playback_url,
                     'verified_status': 'approved'}
         raise HTTPException(404, detail='Video not found')
+    if not _is_video_playable(v):
+        if _normalize_conversion_status(v.conversion_status) != 'processing':
+            _queue_existing_video_conversion(video_id)
+        return JSONResponse(
+            status_code=202,
+            content={
+                'message': 'Video is being processed, please try again shortly',
+                'video_id': v.id,
+                'converted': bool(v.converted),
+                'conversion_status': 'processing',
+                'video_url': '',
+                'playback_url': '',
+            },
+        )
     return _fmt_video(v, db)
 
 
@@ -1059,7 +1271,15 @@ def stream_video(
     if not video:
         raise HTTPException(404, detail='Video not found')
 
-    file_path = Path(video.file_path)
+    if not _is_video_playable(video):
+        if _normalize_conversion_status(video.conversion_status) != 'processing':
+            _queue_existing_video_conversion(video_id)
+        return JSONResponse(
+            status_code=202,
+            content={'message': 'Video is being processed, please try again shortly'},
+        )
+
+    file_path = Path(video.converted_video_url or video.file_path)
     if not file_path.exists():
         raise HTTPException(404, detail='Video file not found')
 
@@ -1115,8 +1335,10 @@ async def replace_video(
             school_id=original.school_id,
             uploader_id=user.user_id,
             file_path=str(converted_path),
+            converted=True,
+            converted_video_url=str(converted_path),
             original_format=original_format,
-            conversion_status='converted',
+            conversion_status='completed',
             gloss_label=original.gloss_label,
             language_variant=original.language_variant,
             sign_category=original.sign_category,
@@ -1219,6 +1441,7 @@ def school_analytics(
             'id': s.id, 'name': s.name, 'region': s.region,
             'district': s.district, 'school_type': s.school_type,
             'deaf_students': s.deaf_students,
+            'address': s.address,
             'latitude': s.latitude, 'longitude': s.longitude,
         },
     }
@@ -1641,6 +1864,7 @@ def admin_map_data(user: User = Depends(require_admin), db: Session = Depends(ge
         'name':         s.name,
         'region':       s.region,
         'district':     s.district,
+        'address':      s.address,
         'latitude':     s.latitude,
         'longitude':    s.longitude,
         'school_type':  s.school_type,
