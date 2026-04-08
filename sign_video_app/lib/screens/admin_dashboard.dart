@@ -159,8 +159,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Map<String, dynamic> _asTypedMap(dynamic value) {
     if (value is Map<String, dynamic>) return value;
-    if (value is Map)
+    if (value is Map) {
       return Map<String, dynamic>.from(value.cast<String, dynamic>());
+    }
     return {};
   }
 
@@ -838,7 +839,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             child: ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: _videosTyped.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (_, index) {
                 final video = _videosTyped[index];
                 final status =
@@ -910,7 +911,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     }
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => VideoDetailScreen(video: video),
+                        builder: (_) =>
+                            VideoDetailScreen(video: video, canModerate: true),
                       ),
                     );
                   },
@@ -940,7 +942,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   DropdownButtonFormField<String>(
-                    value: _selectedRegion,
+                    initialValue: _selectedRegion,
                     decoration: const InputDecoration(labelText: 'Region'),
                     isExpanded: true,
                     items: _regions
@@ -959,7 +961,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<int?>(
-                    value: _selectedSchoolId,
+                    initialValue: _selectedSchoolId,
                     decoration: const InputDecoration(labelText: 'School'),
                     isExpanded: true,
                     items: [
@@ -997,7 +999,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _granularity,
+                    initialValue: _granularity,
                     decoration: const InputDecoration(
                       labelText: 'Trend granularity',
                     ),
@@ -1030,7 +1032,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 SizedBox(
                   width: 180,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedRegion,
+                    initialValue: _selectedRegion,
                     decoration: const InputDecoration(labelText: 'Region'),
                     isExpanded: true,
                     items: _regions
@@ -1051,7 +1053,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 SizedBox(
                   width: 280,
                   child: DropdownButtonFormField<int?>(
-                    value: _selectedSchoolId,
+                    initialValue: _selectedSchoolId,
                     decoration: const InputDecoration(labelText: 'School'),
                     isExpanded: true,
                     items: [
@@ -1778,8 +1780,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
               final duplicateCount = _toInt(row['duplicate_uploads']);
               final regionCounts = <String, int>{};
               for (final entry in matrix) {
-                if (_safeText(entry['gloss_label'], fallback: '') != gloss)
+                if (_safeText(entry['gloss_label'], fallback: '') != gloss) {
                   continue;
+                }
                 regionCounts[_safeText(entry['region'], fallback: 'Unknown')] =
                     _toInt(entry['uploads']);
               }
@@ -1899,8 +1902,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     Navigator.of(context).pop();
                     Navigator.of(this.context).push(
                       MaterialPageRoute(
-                        builder: (_) =>
-                            VideoDetailScreen(video: videoForDetails),
+                        builder: (_) => VideoDetailScreen(
+                          video: videoForDetails,
+                          canModerate: true,
+                        ),
                       ),
                     );
                   },

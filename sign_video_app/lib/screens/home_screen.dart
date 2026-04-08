@@ -211,7 +211,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             : const Icon(Icons.pending, color: Colors.orange),
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => VideoDetailScreen(video: v),
+                            builder: (_) =>
+                                VideoDetailScreen(video: v, canModerate: false),
                           ),
                         ),
                       ),

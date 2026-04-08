@@ -13,6 +13,7 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _district = TextEditingController();
+  final _address = TextEditingController();
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _lat = TextEditingController();
@@ -37,16 +38,36 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
       _err('Passwords do not match');
       return;
     }
+    final address = _address.text.trim();
+    final lat = _lat.text.trim();
+    final lng = _lng.text.trim();
+    if (lat.isEmpty != lng.isEmpty) {
+      _err('Enter both latitude and longitude, or leave both blank');
+      return;
+    }
+
+    double? latitude;
+    double? longitude;
+    if (lat.isNotEmpty) {
+      latitude = double.tryParse(lat);
+      longitude = double.tryParse(lng);
+      if (latitude == null || longitude == null) {
+        _err('Latitude and longitude must be valid numbers');
+        return;
+      }
+    }
+
     setState(() => _loading = true);
     try {
       final res = await ApiService.registerSchool({
         'school_name': _name.text.trim(),
         'region': _region,
         'district': _district.text.trim(),
+        'address': address,
         'contact_email': _email.text.trim(),
         'phone': _phone.text.trim(),
-        'latitude': double.tryParse(_lat.text) ?? 0.0,
-        'longitude': double.tryParse(_lng.text) ?? 0.0,
+        'latitude': latitude,
+        'longitude': longitude,
         'school_type': _schoolType,
         'deaf_students': int.tryParse(_deaf.text) ?? 0,
         'year_established': int.tryParse(_year.text),
@@ -143,6 +164,14 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
               ),
               const SizedBox(height: 12),
               _field(
+                _address,
+                'School Address',
+                Icons.place_outlined,
+                helperText:
+                    'Optional. Enter an address if you do not know the coordinates.',
+              ),
+              const SizedBox(height: 12),
+              _field(
                 _email,
                 'Contact Email',
                 Icons.email_outlined,
@@ -157,7 +186,14 @@ class _RegisterSchoolScreenState extends State<RegisterSchoolScreen> {
                 keyType: TextInputType.phone,
               ),
               const SizedBox(height: 20),
-              _label('LOCATION (GPS)'),
+              _label('LOCATION (ADDRESS OR GPS)'),
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'You can provide an address for automatic map placement, or enter GPS coordinates directly.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
               Row(
                 children: [
                   Expanded(
