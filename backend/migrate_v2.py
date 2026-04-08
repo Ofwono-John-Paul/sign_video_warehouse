@@ -2,22 +2,12 @@
 v2 Schema Migration
 Run once to create new tables and extend existing ones.
 """
-import os
 from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
+from db_utils import build_database_url
 
-load_dotenv()
+DATABASE_URL = build_database_url()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Fix for SQLAlchemy compatibility
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL not set in environment. Check your .env file.")
-
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 statements = [
     # New OLTP tables
