@@ -2,12 +2,20 @@
 v2 Schema Migration
 Run once to create new tables and extend existing ones.
 """
-from sqlalchemy import create_engine, text
-from db_utils import build_database_url
+import os
 
-DATABASE_URL = build_database_url()
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing. Set it in .env or hosting platform settings.")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+print(f"Migration DATABASE_URL loaded: {'yes' if DATABASE_URL else 'no'}")
 
 statements = [
     # New OLTP tables

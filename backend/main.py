@@ -36,12 +36,27 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
+from dotenv import load_dotenv
 from jose import jwt, JWTError
 from werkzeug.security import generate_password_hash, check_password_hash
-from db_utils import build_database_url
+
+load_dotenv()
 
 # ── DATABASE CONFIG ────────────────────────────────────────────────────────────
-SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
+database_url = os.getenv("DATABASE_URL")
+
+if not database_url:
+    raise RuntimeError("DATABASE_URL is missing. Set it in .env or hosting platform settings.")
+
+if os.getenv("DATABASE_SSLMODE", "").strip():
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(database_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["sslmode"] = os.getenv("DATABASE_SSLMODE", "require").strip() or "require"
+    database_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+print(f"DATABASE_URL loaded: {'yes' if database_url else 'no'}")
 
 # ── JWT CONFIG ───────────────────────────────────────────
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "usl-secret-2026")
@@ -62,7 +77,7 @@ CATEGORIES   = ['Education', 'Health']
 VERIFIED     = ['pending', 'approved', 'rejected', 'replaced']
 
 # ── DATABASE ───────────────────────────────────────────────────────────────────
-engine       = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine       = create_engine(database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base         = declarative_base()
 
@@ -273,7 +288,7 @@ Base.metadata.create_all(bind=engine)
 
 
 def _ensure_video_conversion_schema():
-    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+    if not database_url or engine.dialect.name != 'postgresql':
         return
 
     with engine.begin() as connection:
@@ -302,7 +317,7 @@ def _ensure_video_conversion_schema():
 
 
 def _ensure_video_replacement_schema():
-    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+    if not database_url or engine.dialect.name != 'postgresql':
         return
 
     with engine.begin() as connection:
@@ -333,7 +348,7 @@ def _ensure_video_replacement_schema():
 
 
 def _ensure_school_location_schema():
-    if not DATABASE_URL or engine.dialect.name != 'postgresql':
+    if not database_url or engine.dialect.name != 'postgresql':
         return
 
     with engine.begin() as connection:

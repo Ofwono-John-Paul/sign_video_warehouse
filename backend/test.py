@@ -1,20 +1,16 @@
-# import psycopg2
+import os
 
-# conn = psycopg2.connect(
-#     dbname="sign_video_dw",
-#     user="postgres",
-#     password="Kisirinya*256",
-#     host="localhost",
-#     port="5432"
-# )
-# print("Connected successfully!")
-# conn.close()
-
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-from db_utils import build_database_url
+load_dotenv()
 
-engine = create_engine(build_database_url(), pool_pre_ping=True)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is missing. Set it in .env or hosting platform settings.")
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 with engine.connect() as conn:
     result = conn.execute(text("SELECT version();"))
