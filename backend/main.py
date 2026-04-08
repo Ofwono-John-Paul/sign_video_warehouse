@@ -1,7 +1,3 @@
-"""
-Uganda Sign Language Crowdsourcing Platform  v2.0
-Backend: FastAPI + PostgreSQL (OLTP + DW Hybrid Star Schema)
-"""
 import asyncio
 import json
 import math
@@ -45,7 +41,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from db_utils import build_database_url
 
 # ── DATABASE CONFIG ────────────────────────────────────────────────────────────
-DATABASE_URL = build_database_url()
+SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
 
 # ── JWT CONFIG ───────────────────────────────────────────
 JWT_SECRET = os.getenv("JWT_SECRET_KEY", "usl-secret-2026")
