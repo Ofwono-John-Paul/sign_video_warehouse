@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -217,7 +216,7 @@ class ApiService {
     final out = <String>[
       ...segments.sublist(0, uploadIndex + 1),
       'f_mp4,vc_h264,q_auto',
-      if (version != null) version,
+      ?version,
       ...normalizedPublicParts,
     ];
     out[out.length - 1] = '${out.last}.mp4';

@@ -7,7 +7,13 @@ import 'video_replace_sheet.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final Map<String, dynamic> video;
-  const VideoDetailScreen({super.key, required this.video});
+  final bool canModerate;
+
+  const VideoDetailScreen({
+    super.key,
+    required this.video,
+    this.canModerate = false,
+  });
 
   @override
   State<VideoDetailScreen> createState() => _VideoDetailScreenState();
@@ -37,6 +43,18 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     try {
       final res = await ApiService.getVideo(videoId);
       if (!mounted) return;
+      if (res['statusCode'] == 202 && res['body'] is Map<String, dynamic>) {
+        final body = res['body'] as Map<String, dynamic>;
+        setState(() {
+          _errorMsg =
+              (body['message'] ??
+                      body['detail'] ??
+                      'Video is being processed, please try again shortly')
+                  .toString();
+          _initializing = false;
+        });
+        return;
+      }
       if (res['statusCode'] == 200 && res['body'] is Map<String, dynamic>) {
         setState(() {
           _video = Map<String, dynamic>.from(res['body'] as Map);
@@ -113,6 +131,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               });
             }
           }
+        } else if (res['statusCode'] == 202 &&
+            res['body'] is Map<String, dynamic>) {
+          final body = res['body'] as Map<String, dynamic>;
+          if (mounted) {
+            setState(() {
+              _errorMsg =
+                  (body['message'] ??
+                          body['detail'] ??
+                          'Video is being processed, please try again shortly')
+                      .toString();
+              _initializing = false;
+            });
+          }
+          return;
         }
       } catch (_) {
         // Keep initial URL as fallback when refresh fails.
@@ -264,6 +296,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         'pending';
     final isApproved = status == 'approved';
     final isRejected = status == 'rejected';
+    final canModerate = widget.canModerate;
     return Scaffold(
       appBar: AppBar(
         title: Text(_video['gloss_label'] ?? 'Video Detail'),
@@ -395,23 +428,25 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  FilledButton.icon(
-                    onPressed: isApproved
-                        ? null
-                        : () => _setVideoStatus('approved'),
-                    icon: const Icon(Icons.check_circle),
-                    label: const Text('Approve Video'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: isRejected
-                        ? null
-                        : () => _setVideoStatus('rejected'),
-                    icon: const Icon(Icons.cancel),
-                    label: const Text('Reject Video'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
+                  if (canModerate)
+                    FilledButton.icon(
+                      onPressed: isApproved
+                          ? null
+                          : () => _setVideoStatus('approved'),
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Approve Video'),
                     ),
-                  ),
+                  if (canModerate)
+                    OutlinedButton.icon(
+                      onPressed: isRejected
+                          ? null
+                          : () => _setVideoStatus('rejected'),
+                      icon: const Icon(Icons.cancel),
+                      label: const Text('Reject Video'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                    ),
                   OutlinedButton.icon(
                     onPressed: () async {
                       await showModalBottomSheet<void>(
