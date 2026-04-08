@@ -1,43 +1,22 @@
 """
-Migration script to add date_id and category_id columns to fact_video_uploads table
+Migration script to add date_id and category_id columns to fact_video_uploads table.
 """
-import psycopg2
-import os
-from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
-load_dotenv()
+from db_utils import build_database_url
 
-DATABASE_URL = os.getenv(
-    'DATABASE_URL',
-    'postgresql://postgres:Kisirinya%2A256@localhost:5432/sign_video_dw'
-)
+DATABASE_URL = build_database_url()
 
-# Parse the URL
-# postgresql://user:password@host:port/dbname
-url_parts = DATABASE_URL.replace('postgresql://', '').split('@')
-user_pass = url_parts[0].split(':')
-host_db = url_parts[1].split('/')
-host_port = host_db[0].split(':')
-
-conn = psycopg2.connect(
-    dbname=host_db[1],
-    user=user_pass[0],
-    password=user_pass[1].replace('%2A', '*'),
-    host=host_port[0],
-    port=host_port[1] if len(host_port) > 1 else '5432'
-)
-
-cursor = conn.cursor()
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 print("Adding date_id and category_id columns to fact_video_uploads...")
 
-try:
-    # Add date_id column if it doesn't exist
-    cursor.execute("""
-        DO $$ 
+with engine.begin() as conn:
+    conn.execute(text("""
+        DO $$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name='fact_video_uploads' AND column_name='date_id'
             ) THEN
                 ALTER TABLE fact_video_uploads ADD COLUMN date_id INTEGER;
@@ -46,14 +25,13 @@ try:
                 RAISE NOTICE 'Column date_id already exists';
             END IF;
         END $$;
-    """)
-    
-    # Add category_id column if it doesn't exist
-    cursor.execute("""
-        DO $$ 
+    """))
+
+    conn.execute(text("""
+        DO $$
         BEGIN
             IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns 
+                SELECT 1 FROM information_schema.columns
                 WHERE table_name='fact_video_uploads' AND column_name='category_id'
             ) THEN
                 ALTER TABLE fact_video_uploads ADD COLUMN category_id INTEGER;
@@ -62,15 +40,6 @@ try:
                 RAISE NOTICE 'Column category_id already exists';
             END IF;
         END $$;
-    """)
-    
-    conn.commit()
-    print("✅ Migration completed successfully!")
-    
-except Exception as e:
-    conn.rollback()
-    print(f"❌ Error during migration: {e}")
-    raise
-finally:
-    cursor.close()
-    conn.close()
+    """))
+
+print("Migration completed successfully!")
