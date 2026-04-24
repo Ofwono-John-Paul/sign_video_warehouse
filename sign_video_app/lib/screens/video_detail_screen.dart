@@ -354,12 +354,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              const Divider(),
-              _row(
-                context,
-                Icons.label,
-                'Gloss Label',
-                _video['gloss_label']?.toString(),
+              // ── Video player ──────────────────────────────────────────
+              SizedBox(
+                height: 200,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: _buildPlayer(cs),
+                  ),
+                ),
               ),
               _row(
                 context,
