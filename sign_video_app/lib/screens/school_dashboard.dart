@@ -396,7 +396,9 @@ class _SchoolDashboardState extends State<SchoolDashboard>
           ),
           title: Text(h['name'] ?? 'Unknown'),
           subtitle: Text(
-            '${h['facility_type'] ?? ''} · ${h['district'] ?? ''}',
+            h['location']?.toString().isNotEmpty == true
+                ? h['location'].toString()
+                : '${h['facility_type'] ?? ''} · ${h['district'] ?? ''}',
           ),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -557,7 +559,7 @@ class _SchoolDashboardState extends State<SchoolDashboard>
                                   health['name'] ?? 'Health Facility',
                                 ),
                                 content: Text(
-                                  '${health['facility_type'] ?? ''}\n${health['district'] ?? ''}\n${health['distance_km']?.toString() ?? ''} km away',
+                                  '${health['location'] ?? ''}\n${health['distance_km']?.toString() ?? ''} km away',
                                 ),
                                 actions: [
                                   TextButton(

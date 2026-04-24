@@ -12,8 +12,8 @@ class ApiService {
 
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
-    if (kIsWeb) return 'http://localhost:8000';
-    return 'http://10.10.134.62:8000';
+    if (kIsWeb) return 'http://localhost:5000';
+    return 'http://10.10.134.62:5000';
   }
 
   // ── Token helpers ─────────────────────────────────────────────────────────
@@ -334,7 +334,7 @@ class ApiService {
   static Future<Map<String, dynamic>> getNearbyHealth(int schoolId) async {
     final headers = await _authHeaders();
     final res = await http.get(
-      Uri.parse('$baseUrl/api/schools/$schoolId/health-nearby'),
+      Uri.parse('$baseUrl/api/schools/$schoolId/nearby-health'),
       headers: headers,
     );
     dynamic body;

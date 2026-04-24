@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _showError(res['body']['error'] ?? 'Login failed');
       }
     } catch (e) {
-      _showError('Cannot reach server. Is Flask running?');
+      _showError('Cannot reach server. Is the backend running?');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
