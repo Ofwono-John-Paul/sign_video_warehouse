@@ -837,6 +837,39 @@ def _to_browser_playable_video_url(url: str) -> str:
 
     return urlunsplit((parsed.scheme, parsed.netloc, '/' + '/'.join(transformed), parsed.query, parsed.fragment))
 
+
+def _legacy_video_playback_url(dim_video: DimVideo) -> str:
+    source = (dim_video.file_path or '').strip()
+    if not source:
+        return ''
+
+    if source.startswith('http://') or source.startswith('https://'):
+        transformed = _to_browser_playable_video_url(source)
+        return transformed or source
+
+    if source.startswith('/api/'):
+        return source
+
+    if Path(source).exists():
+        return f'/api/videos/{dim_video.video_id}/stream'
+
+    return ''
+
+
+def _legacy_video_file_for_stream(dim_video: DimVideo) -> Path:
+    source = (dim_video.file_path or '').strip()
+    source_path = Path(source)
+    if not source or not source_path.exists():
+        raise HTTPException(404, detail='Legacy video file not found')
+
+    if source_path.suffix.lower() == '.mp4':
+        return source_path
+
+    converted_path = VIDEO_CONVERTED_DIR / f'legacy_{dim_video.video_id}.mp4'
+    if not converted_path.exists():
+        _convert_to_browser_mp4(source_path, converted_path)
+    return converted_path
+
 #  DW HELPERS
 def _haversine(lat1, lon1, lat2, lon2) -> float:
     R = 6371
@@ -1385,7 +1418,7 @@ def get_video(video_id: int,
         # fallback to legacy DimVideo
         dv = db.get(DimVideo, video_id)
         if dv:
-            playback_url = _to_browser_playable_video_url(dv.file_path)
+            playback_url = _legacy_video_playback_url(dv)
             return {'video_id': dv.video_id, 'gloss_label': dv.gloss_label,
                     'language': dv.language,
                     'file_path': dv.file_path,
@@ -1417,7 +1450,25 @@ def stream_video(
 ):
     video = db.get(Video, video_id)
     if not video:
-        raise HTTPException(404, detail='Video not found')
+        # fallback to legacy DimVideo
+        dim_video = db.get(DimVideo, video_id)
+        if not dim_video:
+            raise HTTPException(404, detail='Video not found')
+
+        source = (dim_video.file_path or '').strip()
+        if source.startswith('http://') or source.startswith('https://'):
+            transformed = _to_browser_playable_video_url(source)
+            return RedirectResponse(url=transformed or source, status_code=302)
+
+        if source.startswith('/api/'):
+            return RedirectResponse(url=source, status_code=302)
+
+        file_path = _legacy_video_file_for_stream(dim_video)
+        return FileResponse(
+            path=str(file_path),
+            media_type='video/mp4',
+            filename=file_path.name,
+        )
 
     if not _is_video_playable(video):
         if _normalize_conversion_status(video.conversion_status) != 'processing':
