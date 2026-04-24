@@ -27,7 +27,7 @@ from fastapi import (
     Form, Query, Request, status
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from sqlalchemy import (
@@ -114,6 +114,12 @@ SUPPORTED_VIDEO_CONTENT_TYPES = {
     'application/octet-stream',
 }
 
+OVERPASS_ENDPOINTS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter',
+]
+
 
 def get_db():
     db = SessionLocal()
@@ -131,6 +137,17 @@ app.add_middleware(
     allow_origins=['*'], allow_methods=['*'],
     allow_headers=['*'], allow_credentials=True,
 )
+
+
+@app.on_event('startup')
+def startup_fix_cloudinary_urls():
+    """Log reminder to fix Cloudinary URLs if needed."""
+    print(
+        '\n=== Video URL Fix ===\n'
+        'If you have videos stored in Cloudinary, call:\n'
+        '  POST /api/admin/fix-video-urls\n'
+        'as an admin user to fix Cloudinary video URLs for browser playback.\n'
+    )
 
 
 
@@ -564,7 +581,7 @@ def _store_upload_as_mp4(upload: UploadFile) -> tuple[Path, str, float]:
             raw_path.unlink(missing_ok=True)
 
 
-def _public_video_url(video: Video) -> str:
+def _public_video_url(video: Video, db: Session = None) -> str:
     if not video:
         return ''
 
@@ -573,7 +590,12 @@ def _public_video_url(video: Video) -> str:
         if converted_path.exists():
             return f'/api/videos/{video.id}/stream'
         if video.converted_video_url.startswith('http://') or video.converted_video_url.startswith('https://'):
-            return video.converted_video_url
+            # Ensure Cloudinary URLs are transformed for browser playback
+            transformed = _to_browser_playable_video_url(video.converted_video_url)
+            if transformed and transformed != video.converted_video_url and db is not None:
+                video.converted_video_url = transformed
+                db.commit()
+            return transformed or video.converted_video_url
 
     file_path = (video.file_path or '').strip()
     if not file_path:
@@ -581,6 +603,12 @@ def _public_video_url(video: Video) -> str:
 
     if file_path.startswith('http://') or file_path.startswith('https://'):
         transformed = _to_browser_playable_video_url(file_path)
+        if transformed and transformed != file_path and db is not None:
+            video.file_path = transformed
+            video.converted_video_url = transformed
+            video.conversion_status = 'completed'
+            video.converted = True
+            db.commit()
         return transformed or file_path
 
     if file_path.startswith('/api/'):
@@ -804,6 +832,103 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
     dp, dl = math.radians(lat2-lat1), math.radians(lon2-lon1)
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+
+def _overpass_location(tags: dict, latitude: float, longitude: float) -> str:
+    parts = [
+        tags.get('addr:housenumber'),
+        tags.get('addr:street'),
+        tags.get('addr:suburb'),
+        tags.get('addr:district'),
+        tags.get('addr:city'),
+        tags.get('addr:state'),
+    ]
+    address = ', '.join(part for part in parts if part)
+    if address:
+        return address
+
+    place = tags.get('name') or tags.get('operator') or tags.get('brand') or 'Unknown location'
+    return f'{place} ({latitude:.5f}, {longitude:.5f})'
+
+
+def _fetch_overpass_health_facilities(latitude: float, longitude: float, radius_m: int = 5000) -> list[dict]:
+    overpass_query = f'''
+[out:json][timeout:25];
+(
+  node["amenity"~"^(hospital|clinic)$"](around:{radius_m},{latitude},{longitude});
+  way["amenity"~"^(hospital|clinic)$"](around:{radius_m},{latitude},{longitude});
+  relation["amenity"~"^(hospital|clinic)$"](around:{radius_m},{latitude},{longitude});
+);
+out center tags;
+'''.strip()
+
+    payload = None
+    last_error = None
+    for endpoint in OVERPASS_ENDPOINTS:
+        request = UrlRequest(
+            endpoint,
+            data=f'data={quote(overpass_query)}'.encode('utf-8'),
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': 'sign_video_warehouse/1.0',
+            },
+        )
+
+        try:
+            with urlopen(request, timeout=30) as response:
+                payload = json.load(response)
+            break
+        except Exception as error:
+            last_error = error
+
+    if payload is None:
+        raise last_error or RuntimeError('Overpass query failed')
+
+    facilities = []
+    for element in payload.get('elements', []):
+        tags = element.get('tags') or {}
+        facility_lat = element.get('lat')
+        facility_lon = element.get('lon')
+        if facility_lat is None or facility_lon is None:
+            center = element.get('center') or {}
+            facility_lat = center.get('lat')
+            facility_lon = center.get('lon')
+        if facility_lat is None or facility_lon is None:
+            continue
+
+        facility_name = tags.get('name') or tags.get('operator') or tags.get('brand') or 'Health facility'
+        distance_km = round(_haversine(latitude, longitude, facility_lat, facility_lon), 2)
+
+        facilities.append({
+            'name': facility_name,
+            'location': _overpass_location(tags, facility_lat, facility_lon),
+            'latitude': facility_lat,
+            'longitude': facility_lon,
+            'distance_km': distance_km,
+            'amenity': tags.get('amenity', 'healthcare'),
+        })
+
+    facilities.sort(key=lambda item: item['distance_km'])
+    return facilities
+
+
+def _fallback_health_facilities(db: Session, latitude: float, longitude: float) -> list[dict]:
+    facilities = []
+    for h in db.query(HealthService).all():
+        if h.latitude is None or h.longitude is None:
+            continue
+        location_bits = [h.district, h.region]
+        facilities.append({
+            'name': h.name,
+            'location': ', '.join(bit for bit in location_bits if bit) or f'({h.latitude:.5f}, {h.longitude:.5f})',
+            'latitude': h.latitude,
+            'longitude': h.longitude,
+            'distance_km': round(_haversine(latitude, longitude, h.latitude, h.longitude), 2),
+            'amenity': h.facility_type or 'healthcare',
+        })
+
+    facilities.sort(key=lambda item: item['distance_km'])
+    return facilities
 
 
 def _ensure_date_key(dt: datetime, db: Session) -> int:
@@ -1091,7 +1216,7 @@ async def _handle_upload(
             file_size_kb=size_kb, verified_status='pending',
         )
         db.add(fact); db.commit()
-        playback_url = _public_video_url(video)
+        playback_url = _public_video_url(video, db)
         return {'message': 'Video uploaded successfully',
             'video_id': video.id,
             'verified_status': 'pending',
@@ -1172,7 +1297,7 @@ async def upload_video_alt(
 def _fmt_video(v: Video, db: Session) -> dict:
     school   = db.get(School, v.school_id) if v.school_id else None
     uploader = db.query(User).filter_by(user_id=v.uploader_id).first() if v.uploader_id else None
-    playback_url = _public_video_url(v)
+    playback_url = _public_video_url(v, db)
     return {
         'video_id':        v.id,
         'gloss_label':     v.gloss_label,
@@ -1290,7 +1415,17 @@ def stream_video(
             content={'message': 'Video is being processed, please try again shortly'},
         )
 
-    file_path = Path(video.converted_video_url or video.file_path)
+    # Handle Cloudinary URLs by redirecting to them
+    video_url = video.converted_video_url or video.file_path or ''
+    if video_url.startswith('http://') or video_url.startswith('https://'):
+        transformed = _to_browser_playable_video_url(video_url)
+        if transformed and transformed != video_url:
+            video.converted_video_url = transformed
+            video.file_path = transformed
+            db.commit()
+        return RedirectResponse(url=transformed or video_url, status_code=302)
+
+    file_path = Path(video_url)
     if not file_path.exists():
         raise HTTPException(404, detail='Video file not found')
 
@@ -1458,8 +1593,9 @@ def school_analytics(
     }
 
 
+@app.get('/api/schools/{school_id}/nearby-health')
 @app.get('/api/schools/{school_id}/health-nearby')
-def health_nearby(
+def nearby_health(
     school_id: int,
     user: User = Depends(get_current_user),
     db:   Session = Depends(get_db),
@@ -1467,31 +1603,23 @@ def health_nearby(
     s = db.get(School, school_id)
     if not s:
         raise HTTPException(404, detail='School not found')
-    if not s.latitude or not s.longitude:
+    if s.latitude is None or s.longitude is None:
         return {'facilities': [], 'message': 'School has no GPS coordinates'}
 
-    facilities = db.query(HealthService).all()
-    ranked = sorted(
-        [
-            {
-                'id':            h.id,
-                'name':          h.name,
-                'facility_type': h.facility_type,
-                'district':      h.district,
-                'region':        h.region,
-                'latitude':      h.latitude,
-                'longitude':     h.longitude,
-                'deaf_friendly': h.deaf_friendly,
-                'services':      h.services_available,
-                'distance_km':   round(
-                    _haversine(s.latitude, s.longitude, h.latitude, h.longitude), 2
-                ),
-            }
-            for h in facilities if h.latitude and h.longitude
-        ],
-        key=lambda x: x['distance_km'],
-    )
-    return {'school': s.name, 'facilities': ranked[:5]}
+    try:
+        facilities = _fetch_overpass_health_facilities(s.latitude, s.longitude)
+    except Exception:
+        facilities = _fallback_health_facilities(db, s.latitude, s.longitude)
+
+    return {
+        'school': {
+            'id': s.id,
+            'name': s.name,
+            'latitude': s.latitude,
+            'longitude': s.longitude,
+        },
+        'facilities': facilities[:10],
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2010,6 +2138,31 @@ def add_health_service(
     )
     db.add(h); db.commit()
     return {'message': 'Added', 'id': h.id}
+
+@app.post('/api/admin/fix-video-urls')
+def fix_video_urls(
+    user: User = Depends(require_admin),
+    db:   Session = Depends(get_db),
+):
+    """Fix Cloudinary video URLs by adding browser-playable transformations."""
+    fixed_count = 0
+    videos = db.query(Video).all()
+    for video in videos:
+        updated = False
+        for field in ('file_path', 'converted_video_url'):
+            current_url = getattr(video, field) or ''
+            if current_url.startswith('http://') or current_url.startswith('https://'):
+                transformed = _to_browser_playable_video_url(current_url)
+                if transformed and transformed != current_url:
+                    setattr(video, field, transformed)
+                    updated = True
+                    fixed_count += 1
+        if updated:
+            video.conversion_status = 'completed'
+            video.converted = True
+    db.commit()
+    return {'message': f'Fixed {fixed_count} video URLs', 'fixed_count': fixed_count}
+
 
 #  ENTRY POINT
 if __name__ == '__main__':
