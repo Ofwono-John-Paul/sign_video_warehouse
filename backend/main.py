@@ -621,24 +621,36 @@ def _public_video_url(video: Video, db: Session = None) -> str:
 
 
 def _video_conversion_source(video: Video) -> str:
-    if video.converted_video_url:
-        return video.converted_video_url
-    return video.file_path or ''
+    converted = (video.converted_video_url or '').strip()
+    if converted:
+        if converted.startswith('http://') or converted.startswith('https://'):
+            return converted
+        if converted.startswith('/api/'):
+            return converted
+        if Path(converted).exists():
+            return converted
+
+    file_path = (video.file_path or '').strip()
+    if file_path:
+        return file_path
+
+    return converted
 
 
 def _is_video_playable(video: Video) -> bool:
-    status = _normalize_conversion_status(video.conversion_status)
-    if video.converted and status == 'completed':
-        return True
-
     path_value = _video_conversion_source(video).strip()
     if not path_value:
         return False
 
     if path_value.startswith('http://') or path_value.startswith('https://'):
-        return path_value.lower().endswith('.mp4') and status == 'completed'
+        transformed = _to_browser_playable_video_url(path_value)
+        return bool(transformed)
 
-    return Path(path_value).exists() and Path(path_value).suffix.lower() == '.mp4' and status == 'completed'
+    if path_value.startswith('/api/'):
+        return True
+
+    local_path = Path(path_value)
+    return local_path.exists() and local_path.suffix.lower() == '.mp4'
 
 
 def _queue_existing_video_conversion(video_id: int) -> None:
@@ -1415,13 +1427,17 @@ def stream_video(
             content={'message': 'Video is being processed, please try again shortly'},
         )
 
-    # Handle Cloudinary URLs by redirecting to them
-    video_url = video.converted_video_url or video.file_path or ''
+    # Prefer a real playable source. This avoids stale converted paths
+    # blocking playback when an original remote URL still exists.
+    video_url = _video_conversion_source(video)
     if video_url.startswith('http://') or video_url.startswith('https://'):
         transformed = _to_browser_playable_video_url(video_url)
         if transformed and transformed != video_url:
             video.converted_video_url = transformed
-            video.file_path = transformed
+            if (video.file_path or '').strip() == video_url:
+                video.file_path = transformed
+            video.conversion_status = 'completed'
+            video.converted = True
             db.commit()
         return RedirectResponse(url=transformed or video_url, status_code=302)
 
