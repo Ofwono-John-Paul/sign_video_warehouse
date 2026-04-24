@@ -346,25 +346,22 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               ),
               const SizedBox(height: 20),
               // ── Video player ──────────────────────────────────────────
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: _buildPlayer(cs),
-                ),
-              ),
-              const SizedBox(height: 24),
-              // ── Video player ──────────────────────────────────────────
-              SizedBox(
-                height: 200,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: _buildPlayer(cs),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 720,
+                    maxHeight: 320,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: _buildPlayer(cs),
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(height: 24),
               _row(
                 context,
                 Icons.language,
