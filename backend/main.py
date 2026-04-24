@@ -637,6 +637,17 @@ def _video_conversion_source(video: Video) -> str:
     return converted
 
 
+def _has_recoverable_video_source(video: Video) -> bool:
+    source = _video_conversion_source(video).strip()
+    if not source:
+        return False
+    if source.startswith('http://') or source.startswith('https://'):
+        return True
+    if source.startswith('/api/'):
+        return True
+    return Path(source).exists()
+
+
 def _is_video_playable(video: Video) -> bool:
     path_value = _video_conversion_source(video).strip()
     if not path_value:
@@ -1427,6 +1438,18 @@ def get_video(video_id: int,
                     'verified_status': 'approved'}
         raise HTTPException(404, detail='Video not found')
     if not _is_video_playable(v):
+        if not _has_recoverable_video_source(v):
+            return JSONResponse(
+                status_code=404,
+                content={
+                    'message': 'Video source is unavailable in this environment. Re-upload this video to restore playback.',
+                    'video_id': v.id,
+                    'converted': bool(v.converted),
+                    'conversion_status': 'failed',
+                    'video_url': '',
+                    'playback_url': '',
+                },
+            )
         if _normalize_conversion_status(v.conversion_status) != 'processing':
             _queue_existing_video_conversion(video_id)
         return JSONResponse(
@@ -1471,6 +1494,13 @@ def stream_video(
         )
 
     if not _is_video_playable(video):
+        if not _has_recoverable_video_source(video):
+            return JSONResponse(
+                status_code=404,
+                content={
+                    'message': 'Video source is unavailable in this environment. Re-upload this video to restore playback.',
+                },
+            )
         if _normalize_conversion_status(video.conversion_status) != 'processing':
             _queue_existing_video_conversion(video_id)
         return JSONResponse(
