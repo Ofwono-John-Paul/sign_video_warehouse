@@ -9,12 +9,13 @@ import tempfile
 import uuid
 import threading
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request as UrlRequest, urlopen
 
 import cloudinary
+import cloudinary.api
 import cloudinary.uploader
 
 try:
@@ -635,6 +636,248 @@ def _video_conversion_source(video: Video) -> str:
         return file_path
 
     return converted
+
+
+def _candidate_cloudinary_public_ids_from_path(path_value: str) -> list[str]:
+    raw_value = (path_value or '').strip()
+    if not raw_value:
+        return []
+
+    parsed = urlsplit(raw_value)
+    candidate = parsed.path if parsed.scheme else raw_value
+    if not candidate:
+        return []
+
+    stem = Path(candidate).stem
+    if not stem:
+        return []
+
+    candidates = [
+        stem,
+        f'converted/{stem}',
+        f'uploads/converted/{stem}',
+        f'videos/{stem}',
+    ]
+
+    # Keep order while removing duplicates.
+    seen = set()
+    unique: list[str] = []
+    for item in candidates:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
+
+
+def _resolve_cloudinary_url_from_paths(*path_values: str) -> str:
+    all_candidates: list[str] = []
+    for value in path_values:
+        all_candidates.extend(_candidate_cloudinary_public_ids_from_path(value))
+
+    seen = set()
+    ordered_candidates: list[str] = []
+    for candidate in all_candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered_candidates.append(candidate)
+
+    for public_id in ordered_candidates:
+        try:
+            cloudinary.api.resource(public_id, resource_type='video', type='upload')
+        except Exception:
+            continue
+
+        transformed, _ = cloudinary.utils.cloudinary_url(
+            public_id,
+            resource_type='video',
+            type='upload',
+            secure=True,
+            format='mp4',
+            transformation='f_mp4,vc_h264,q_auto',
+        )
+        return transformed or ''
+
+    return ''
+
+
+def _repair_video_source_from_cloudinary(video: Video, db: Session) -> bool:
+    local_file = (video.file_path or '').strip()
+    local_converted = (video.converted_video_url or '').strip()
+
+    cloud_url = _resolve_cloudinary_url_from_paths(local_converted, local_file)
+    if not cloud_url:
+        return False
+
+    video.converted_video_url = cloud_url
+    video.file_path = cloud_url
+    video.conversion_status = 'completed'
+    video.converted = True
+    db.commit()
+    return True
+
+
+def _cloudinary_delivery_mp4_url(public_id: str) -> str:
+    if not public_id:
+        return ''
+    transformed, _ = cloudinary.utils.cloudinary_url(
+        public_id,
+        resource_type='video',
+        type='upload',
+        secure=True,
+        format='mp4',
+        transformation='f_mp4,vc_h264,q_auto',
+    )
+    return transformed or ''
+
+
+def _fetch_cloudinary_video_resources(max_items: int = 500) -> list[dict]:
+    resources: list[dict] = []
+    next_cursor = None
+    while len(resources) < max_items:
+        search = cloudinary.search.Search().expression('resource_type:video').max_results(100)
+        if next_cursor:
+            search = search.next_cursor(next_cursor)
+        payload = search.execute()
+        batch = payload.get('resources') or []
+        if not batch:
+            break
+        resources.extend(batch)
+        next_cursor = payload.get('next_cursor')
+        if not next_cursor:
+            break
+    return resources[:max_items]
+
+
+def _extract_timestamp_from_video_path(path_value: str) -> Optional[datetime]:
+    text = (path_value or '').strip()
+    if not text:
+        return None
+    basename = Path(text).name
+    match = re.match(r'^(\d{20})_', basename)
+    if not match:
+        return None
+    try:
+        parsed = datetime.strptime(match.group(1), '%Y%m%d%H%M%S%f')
+        return parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _parse_cloudinary_created_at(value: str) -> Optional[datetime]:
+    raw = (value or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace('Z', '+00:00')).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _relink_missing_videos_from_cloudinary(db: Session, dry_run: bool = True) -> dict:
+    resources = _fetch_cloudinary_video_resources(max_items=500)
+    if not resources:
+        return {
+            'updated': 0,
+            'checked': 0,
+            'message': 'No Cloudinary video resources found for relink',
+            'matches': [],
+        }
+
+    indexed = []
+    for item in resources:
+        public_id = (item.get('public_id') or '').strip()
+        if not public_id:
+            continue
+        created_at = _parse_cloudinary_created_at(item.get('created_at') or '')
+        bytes_value = int(item.get('bytes') or 0)
+        indexed.append({'public_id': public_id, 'created_at': created_at, 'bytes': bytes_value})
+
+    linked_urls = {
+        (v.converted_video_url or '').strip()
+        for v in db.query(Video).all()
+        if (v.converted_video_url or '').strip().startswith('http')
+    }
+    used_public_ids = {
+        row['public_id']
+        for row in indexed
+        if _cloudinary_delivery_mp4_url(row['public_id']) in linked_urls
+    }
+
+    candidates = []
+    videos = db.query(Video).order_by(Video.id.asc()).all()
+    for video in videos:
+        current_source = _video_conversion_source(video).strip()
+        if current_source.startswith('http://') or current_source.startswith('https://'):
+            continue
+        if current_source and Path(current_source).exists():
+            continue
+
+        expected_at = _extract_timestamp_from_video_path(video.file_path or '')
+        if expected_at is None and video.upload_timestamp is not None:
+            expected_at = video.upload_timestamp.replace(tzinfo=timezone.utc)
+
+        expected_bytes = int(round((video.file_size_kb or 0) * 1024))
+        best = None
+        best_score = None
+        for row in indexed:
+            public_id = row['public_id']
+            if public_id in used_public_ids:
+                continue
+
+            time_penalty = 0
+            if expected_at is not None and row['created_at'] is not None:
+                time_penalty = abs((row['created_at'] - expected_at).total_seconds())
+            elif expected_at is not None:
+                time_penalty = 86400 * 7
+
+            size_penalty = 0
+            if expected_bytes > 0 and row['bytes'] > 0:
+                size_penalty = abs(row['bytes'] - expected_bytes) / expected_bytes * 3600
+
+            score = time_penalty + size_penalty
+            if best_score is None or score < best_score:
+                best_score = score
+                best = row
+
+        if not best:
+            continue
+
+        # Prevent clearly unrelated matches.
+        if best_score is not None and best_score > 86400 * 3:
+            continue
+
+        delivery_url = _cloudinary_delivery_mp4_url(best['public_id'])
+        if not delivery_url:
+            continue
+
+        candidates.append({
+            'video_id': video.id,
+            'public_id': best['public_id'],
+            'delivery_url': delivery_url,
+            'score': round(float(best_score or 0), 2),
+        })
+        used_public_ids.add(best['public_id'])
+
+    if not dry_run:
+        for item in candidates:
+            video = db.get(Video, item['video_id'])
+            if not video:
+                continue
+            video.file_path = item['delivery_url']
+            video.converted_video_url = item['delivery_url']
+            video.converted = True
+            video.conversion_status = 'completed'
+        db.commit()
+
+    return {
+        'updated': 0 if dry_run else len(candidates),
+        'checked': len(videos),
+        'cloudinary_resources': len(indexed),
+        'matches': candidates,
+        'dry_run': dry_run,
+    }
 
 
 def _has_recoverable_video_source(video: Video) -> bool:
@@ -1438,6 +1681,12 @@ def get_video(video_id: int,
                     'verified_status': 'approved'}
         raise HTTPException(404, detail='Video not found')
     if not _is_video_playable(v):
+        # Recover legacy records that still reference old local paths by
+        # resolving the same filename in Cloudinary and persisting that URL.
+        if _repair_video_source_from_cloudinary(v, db):
+            db.refresh(v)
+            return _fmt_video(v, db)
+
         if not _has_recoverable_video_source(v):
             return JSONResponse(
                 status_code=404,
@@ -1494,6 +1743,10 @@ def stream_video(
         )
 
     if not _is_video_playable(video):
+        if _repair_video_source_from_cloudinary(video, db):
+            db.refresh(video)
+            return RedirectResponse(url=_public_video_url(video, db), status_code=302)
+
         if not _has_recoverable_video_source(video):
             return JSONResponse(
                 status_code=404,
@@ -2259,6 +2512,64 @@ def fix_video_urls(
             video.converted = True
     db.commit()
     return {'message': f'Fixed {fixed_count} video URLs', 'fixed_count': fixed_count}
+
+
+@app.post('/api/admin/relink-missing-videos-from-cloudinary')
+def relink_missing_videos_from_cloudinary(
+    dry_run: bool = Query(True),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Relink missing local video paths to Cloudinary URLs using timestamp/size matching."""
+    try:
+        result = _relink_missing_videos_from_cloudinary(db, dry_run=dry_run)
+        mode = 'previewed' if dry_run else 'updated'
+        result['message'] = f"Cloudinary relink {mode}: {len(result.get('matches', []))} candidate(s)"
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f'Cloudinary relink failed: {exc}')
+
+
+@app.post('/api/admin/videos/{video_id}/link-cloudinary')
+def link_video_to_cloudinary(
+    video_id: int,
+    data: dict,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Manually link a video record to a Cloudinary asset using public_id or URL."""
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail='Video not found')
+
+    cloudinary_url = (data.get('cloudinary_url') or '').strip()
+    public_id = (data.get('public_id') or '').strip()
+
+    if cloudinary_url:
+        resolved = _to_browser_playable_video_url(cloudinary_url)
+    elif public_id:
+        try:
+            cloudinary.api.resource(public_id, resource_type='video', type='upload')
+        except Exception:
+            raise HTTPException(status_code=400, detail='Cloudinary public_id not found')
+        resolved = _cloudinary_delivery_mp4_url(public_id)
+    else:
+        raise HTTPException(status_code=400, detail='Provide cloudinary_url or public_id')
+
+    if not resolved:
+        raise HTTPException(status_code=400, detail='Could not build a playable Cloudinary URL')
+
+    video.file_path = resolved
+    video.converted_video_url = resolved
+    video.converted = True
+    video.conversion_status = 'completed'
+    db.commit()
+
+    return {
+        'message': 'Video linked to Cloudinary successfully',
+        'video_id': video.id,
+        'playback_url': resolved,
+    }
 
 
 #  ENTRY POINT
