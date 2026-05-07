@@ -37,7 +37,7 @@ class _SchoolDashboardState extends State<SchoolDashboard>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     _load();
   }
 
@@ -82,6 +82,9 @@ class _SchoolDashboardState extends State<SchoolDashboard>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final school = (_analytics['school'] as Map?)?.cast<String, dynamic>();
+    final schoolRegion = school?['region']?.toString() ?? '';
+    final schoolDistrict = school?['district']?.toString() ?? '';
     return Scaffold(
       appBar: AppBar(
         title: Text(_schoolName, overflow: TextOverflow.ellipsis),
@@ -101,13 +104,19 @@ class _SchoolDashboardState extends State<SchoolDashboard>
             Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
             Tab(icon: Icon(Icons.video_library), text: 'Videos'),
             Tab(icon: Icon(Icons.local_hospital), text: 'Health'),
-            Tab(icon: Icon(Icons.map_outlined), text: 'Location'),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const UploadScreen()))
+            .push(
+              MaterialPageRoute(
+                builder: (_) => UploadScreen(
+                  initialRegion: schoolRegion,
+                  initialDistrict: schoolDistrict,
+                ),
+              ),
+            )
             .then((_) => _load()),
         icon: const Icon(Icons.upload),
         label: const Text('Upload Sign'),
@@ -118,12 +127,7 @@ class _SchoolDashboardState extends State<SchoolDashboard>
           ? const Center(child: CircularProgressIndicator())
           : TabBarView(
               controller: _tabs,
-              children: [
-                _overviewTab(cs),
-                _videosTab(cs),
-                _healthTab(cs),
-                _locationTab(cs),
-              ],
+              children: [_overviewTab(cs), _videosTab(cs), _healthTab(cs)],
             ),
     );
   }

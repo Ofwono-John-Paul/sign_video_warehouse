@@ -9,7 +9,14 @@ import '../utils/replacement_video_preview_controller.dart';
 import 'live_record_screen.dart';
 
 class UploadScreen extends StatefulWidget {
-  const UploadScreen({super.key});
+  final String initialRegion;
+  final String initialDistrict;
+
+  const UploadScreen({
+    super.key,
+    this.initialRegion = '',
+    this.initialDistrict = '',
+  });
   @override
   State<UploadScreen> createState() => _UploadScreenState();
 }
@@ -51,9 +58,14 @@ class _UploadScreenState extends State<UploadScreen> {
   List<String> get _sentenceTypes =>
       _sentenceTypesByCategory[_category] ?? const ['Statement'];
 
+  String get _defaultRegion =>
+      widget.initialRegion.isNotEmpty ? widget.initialRegion : 'Central';
+
   @override
   void initState() {
     super.initState();
+    _region = _defaultRegion;
+    _districtCtrl.text = widget.initialDistrict;
     _sentenceType = _sentenceTypes.first;
   }
 
@@ -384,7 +396,6 @@ class _UploadScreenState extends State<UploadScreen> {
 
   void _resetForm() {
     _glossCtrl.clear();
-    _districtCtrl.clear();
     setState(() {
       _selectedFile = null;
       _isLiveRecording = false;
@@ -395,8 +406,9 @@ class _UploadScreenState extends State<UploadScreen> {
       _category = 'Education';
       _language = 'USL';
       _sentenceType = _sentenceTypes.first;
-      _region = 'Central';
+      _region = _defaultRegion;
     });
+    _districtCtrl.text = widget.initialDistrict;
   }
 
   void _showError(String msg) => ScaffoldMessenger.of(
@@ -413,42 +425,50 @@ class _UploadScreenState extends State<UploadScreen> {
         foregroundColor: cs.onPrimary,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Upload Sign Language Video',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Contribute to the sign language dataset',
-                  style: TextStyle(color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 24),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Upload Sign Language Video',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Contribute to the sign language dataset',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 24),
 
-                // ── Card wrapper ───────────────────────────────────────────
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 620),
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+                        // ── Card wrapper ───────────────────────────────────
+                        Container(
+                          constraints: const BoxConstraints(maxWidth: 620),
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.06),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
                       // ── Gloss label ──────────────────────────────────────
                       TextFormField(
                         controller: _glossCtrl,
@@ -742,12 +762,16 @@ class _UploadScreenState extends State<UploadScreen> {
                                 ),
                         ),
                       ),
-                    ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
