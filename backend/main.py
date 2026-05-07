@@ -1947,26 +1947,30 @@ def school_analytics(
 @app.get('/api/schools/{school_id}/health-nearby')
 def nearby_health(
     school_id: int,
+    latitude: Optional[float] = Query(None),
+    longitude: Optional[float] = Query(None),
     user: User = Depends(get_current_user),
     db:   Session = Depends(get_db),
 ):
     s = db.get(School, school_id)
     if not s:
         raise HTTPException(404, detail='School not found')
-    if s.latitude is None or s.longitude is None:
+    scan_lat = latitude if latitude is not None else s.latitude
+    scan_lng = longitude if longitude is not None else s.longitude
+    if scan_lat is None or scan_lng is None:
         return {'facilities': [], 'message': 'School has no GPS coordinates'}
 
     try:
-        facilities = _fetch_overpass_health_facilities(s.latitude, s.longitude)
+        facilities = _fetch_overpass_health_facilities(scan_lat, scan_lng)
     except Exception:
-        facilities = _fallback_health_facilities(db, s.latitude, s.longitude)
+        facilities = _fallback_health_facilities(db, scan_lat, scan_lng)
 
     return {
         'school': {
             'id': s.id,
             'name': s.name,
-            'latitude': s.latitude,
-            'longitude': s.longitude,
+            'latitude': scan_lat,
+            'longitude': scan_lng,
         },
         'facilities': facilities[:10],
     }

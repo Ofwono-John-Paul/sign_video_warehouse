@@ -50,11 +50,20 @@ class _SchoolDashboardState extends State<SchoolDashboard>
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final [an, vids, hl] = await Future.wait([
+      final [an, vids] = await Future.wait([
         ApiService.getSchoolAnalytics(widget.schoolId),
         ApiService.getVideos(),
-        ApiService.getNearbyHealth(widget.schoolId),
       ]);
+      final school =
+          (an['body'] as Map<String, dynamic>?)?['school']
+              as Map<String, dynamic>?;
+      final schoolLatitude = (school?['latitude'] as num?)?.toDouble();
+      final schoolLongitude = (school?['longitude'] as num?)?.toDouble();
+      final hl = await ApiService.getNearbyHealth(
+        widget.schoolId,
+        latitude: schoolLatitude,
+        longitude: schoolLongitude,
+      );
       if (!mounted) return;
       setState(() {
         _analytics = (an['body'] as Map<String, dynamic>?) ?? {};

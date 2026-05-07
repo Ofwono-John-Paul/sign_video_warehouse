@@ -331,12 +331,20 @@ class ApiService {
     return {'statusCode': res.statusCode, 'body': body};
   }
 
-  static Future<Map<String, dynamic>> getNearbyHealth(int schoolId) async {
+  static Future<Map<String, dynamic>> getNearbyHealth(
+    int schoolId, {
+    double? latitude,
+    double? longitude,
+  }) async {
     final headers = await _authHeaders();
-    final res = await http.get(
-      Uri.parse('$baseUrl/api/schools/$schoolId/nearby-health'),
-      headers: headers,
-    );
+    final uri = Uri.parse('$baseUrl/api/schools/$schoolId/nearby-health')
+        .replace(
+          queryParameters: {
+            if (latitude != null) 'latitude': latitude.toStringAsFixed(7),
+            if (longitude != null) 'longitude': longitude.toStringAsFixed(7),
+          },
+        );
+    final res = await http.get(uri, headers: headers);
     dynamic body;
     try {
       body = jsonDecode(res.body);
