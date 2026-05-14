@@ -288,10 +288,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -300,9 +297,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (confirmed != true) return;
 
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Deleting videos...')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Deleting videos...')));
 
       final result = await ApiService.deleteSelectedVideos(
         _selectedVideoIds.toList(),
@@ -312,9 +309,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                result['message'] ?? 'Videos deleted successfully',
-              ),
+              content: Text(result['message'] ?? 'Videos deleted successfully'),
               backgroundColor: Colors.green,
             ),
           );
@@ -332,10 +327,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final error = result['error'] ?? 'Unknown error';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $error'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $error'), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
@@ -920,9 +912,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     onPressed: _selectionMode ? _deleteSelectedVideos : null,
                     icon: const Icon(Icons.delete_outline),
                     label: const Text('Delete selected'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red,
-                    ),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
                   ),
                 ],
               ),
