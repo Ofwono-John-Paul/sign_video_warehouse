@@ -1713,6 +1713,38 @@ def download_all_videos_dataset(
     )
 
 
+@app.delete('/api/videos')
+def delete_selected_videos(
+    payload: dict,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete selected videos and their fact records."""
+    video_ids = payload.get('video_ids', [])
+    if not video_ids or not isinstance(video_ids, list):
+        raise HTTPException(400, detail='video_ids must be a non-empty list')
+
+    try:
+        # Delete FactVideoUpload records first (foreign key constraint)
+        db.query(FactVideoUpload).filter(
+            FactVideoUpload.video_id.in_(video_ids)
+        ).delete(synchronize_session=False)
+
+        # Delete Video records
+        deleted_count = db.query(Video).filter(
+            Video.id.in_(video_ids)
+        ).delete(synchronize_session=False)
+
+        db.commit()
+        return {
+            'deleted_count': deleted_count,
+            'message': f'Successfully deleted {deleted_count} video(s)',
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, detail=f'Failed to delete videos: {str(e)}')
+
+
 @app.get('/api/videos/{video_id}')
 def get_video(video_id: int,
               user: User = Depends(get_current_user),
