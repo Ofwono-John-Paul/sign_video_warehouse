@@ -457,7 +457,10 @@ class ApiService {
 
       try {
         final body = jsonDecode(res.body);
-        return {'statusCode': res.statusCode, 'error': body['detail'] ?? 'Unknown error'};
+        return {
+          'statusCode': res.statusCode,
+          'error': body['detail'] ?? 'Unknown error',
+        };
       } catch (_) {
         return {
           'statusCode': res.statusCode,
@@ -465,13 +468,9 @@ class ApiService {
         };
       }
     } catch (e) {
-      return {
-        'statusCode': 500,
-        'error': 'Network error: $e',
-      };
+      return {'statusCode': 500, 'error': 'Network error: $e'};
     }
   }
-
 
   // ── Admin Analytics ───────────────────────────────────────────────────────
   static Map<String, String> _analyticsQueryParams({
