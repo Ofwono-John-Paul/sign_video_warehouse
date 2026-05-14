@@ -266,6 +266,90 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _showMessage('Started downloading ${selected.length} video(s).');
   }
 
+  Future<void> _deleteSelectedVideos() async {
+    if (_selectedVideoIds.isEmpty) {
+      _showMessage('Select at least one video to delete.');
+      return;
+    }
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Videos'),
+        content: Text(
+          'Are you sure you want to permanently delete ${_selectedVideoIds.length} video(s)? '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deleting videos...')),
+      );
+
+      final result = await ApiService.deleteSelectedVideos(
+        _selectedVideoIds.toList(),
+      );
+
+      if (result['statusCode'] == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                result['message'] ?? 'Videos deleted successfully',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        // Refresh the videos list
+        await _load();
+        // Clear selection and exit selection mode
+        setState(() {
+          _selectedVideoIds.clear();
+          _selectionMode = false;
+        });
+        return;
+      }
+
+      final error = result['error'] ?? 'Unknown error';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Delete failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   void _toggleSelectionMode() {
     setState(() {
       _selectionMode = !_selectionMode;
@@ -830,6 +914,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     onPressed: _selectionMode ? _downloadSelectedVideos : null,
                     icon: const Icon(Icons.download),
                     label: const Text('Download selected'),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: _selectionMode ? _deleteSelectedVideos : null,
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete selected'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
                   ),
                 ],
               ),
