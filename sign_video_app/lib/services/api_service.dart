@@ -403,17 +403,26 @@ class ApiService {
       };
     }
 
-    final res = await http.get(
+    // Try primary endpoint first
+    var res = await http.get(
       Uri.parse('$baseUrl/api/videos/download-dataset'),
       headers: headers,
     );
+
+    // If primary failed (route collision or 405), try an alias path the server may expose
+    if (res.statusCode != 200) {
+      final fallback = await http.get(
+        Uri.parse('$baseUrl/api/videos/download/all'),
+        headers: headers,
+      );
+      res = fallback;
+    }
 
     if (res.statusCode == 200) {
       return {
         'statusCode': res.statusCode,
         'bodyBytes': res.bodyBytes,
-        'filename':
-            _extractFilenameFromHeaders(res.headers) ?? 'all_videos.zip',
+        'filename': _extractFilenameFromHeaders(res.headers) ?? 'all_videos.zip',
       };
     }
 
@@ -453,6 +462,31 @@ class ApiService {
           'deleted_count': body['deleted_count'] ?? 0,
           'message': body['message'] ?? 'Videos deleted successfully',
         };
+      }
+
+      // If DELETE is not allowed or failed due to proxy, try POST fallback
+      if (res.statusCode == 405 || res.statusCode == 404 || (res.statusCode >= 400 && res.statusCode < 500)) {
+        final postRes = await http.post(
+          Uri.parse('$baseUrl/api/videos/delete'),
+          headers: {...headers, 'Content-Type': 'application/json'},
+          body: jsonEncode({'video_ids': videoIds}),
+        );
+
+        if (postRes.statusCode == 200 || postRes.statusCode == 204) {
+          final body = jsonDecode(postRes.body);
+          return {
+            'statusCode': postRes.statusCode,
+            'deleted_count': body['deleted_count'] ?? 0,
+            'message': body['message'] ?? 'Videos deleted successfully (via POST)',
+          };
+        }
+
+        try {
+          final body = jsonDecode(postRes.body);
+          return {'statusCode': postRes.statusCode, 'error': body['detail'] ?? 'Unknown error'};
+        } catch (_) {
+          return {'statusCode': postRes.statusCode, 'error': 'Failed to delete videos'};
+        }
       }
 
       try {
@@ -696,5 +730,41 @@ class ApiService {
   static Future<String> getUsername() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('username') ?? '';
+  }
+
+  static Future<Map<String, dynamic>> getKnowledgeGraph() async {
+    final headers = await _authHeaders();
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/knowledge-graph'),
+      headers: headers,
+    );
+
+    if (res.statusCode == 200) {
+      try {
+        final body = jsonDecode(res.body);
+        return {
+          'statusCode': 200,
+          'data': body,
+        };
+      } catch (e) {
+        return {
+          'statusCode': 200,
+          'error': 'Failed to parse graph data: $e',
+        };
+      }
+    }
+
+    try {
+      final body = jsonDecode(res.body);
+      return {
+        'statusCode': res.statusCode,
+        'error': body['detail'] ?? 'Failed to fetch knowledge graph',
+      };
+    } catch (_) {
+      return {
+        'statusCode': res.statusCode,
+        'error': 'Failed to fetch knowledge graph',
+      };
+    }
   }
 }

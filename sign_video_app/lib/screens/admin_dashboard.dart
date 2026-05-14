@@ -10,6 +10,7 @@ import 'dart:html' if (dart.library.html) 'dart:html' as html;
 import '../services/api_service.dart';
 import '../services/video_download_service.dart';
 import '../widgets/install_button.dart';
+import '../widgets/knowledge_graph_visualization.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
 
@@ -41,6 +42,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Map<String, dynamic> _overview = {};
   Map<String, dynamic> _schoolAnalytics = {};
   Map<String, dynamic> _mapData = {};
+  Map<String, dynamic> _knowledgeGraph = {};
   List<dynamic> _schools = [];
   List<dynamic> _videos = [];
   final Set<int> _selectedVideoIds = <int>{};
@@ -80,6 +82,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ApiService.getMapData(),
         ApiService.getAdminSchools(),
         ApiService.getVideos(),
+        ApiService.getKnowledgeGraph(),
       ]);
 
       if (!mounted) return;
@@ -89,6 +92,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _mapData = _mapBody(results[2]);
         _schools = _listBody(results[3], 'schools');
         _videos = _listBody(results[4], 'videos');
+        _knowledgeGraph = _mapBody(results[5]);
       });
     } catch (error) {
       debugPrint('Admin dashboard load error: $error');
@@ -406,6 +410,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return 'Maps';
       case 3:
         return 'Videos';
+      case 4:
+        return 'Knowledge Graph';
       default:
         return 'Overview Analytics';
     }
@@ -426,6 +432,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   _buildSchoolsPage(cs),
                   _buildMapPage(cs),
                   _buildVideosPage(cs),
+                  _buildKnowledgeGraphPage(cs),
                 ],
               );
 
@@ -508,6 +515,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           selectedIcon: Icon(Icons.video_library),
           label: Text('Videos'),
         ),
+        NavigationRailDestination(
+          icon: Icon(Icons.workspaces_outlined),
+          selectedIcon: Icon(Icons.workspaces),
+          label: Text('Knowledge Graph'),
+        ),
       ],
     );
   }
@@ -528,6 +540,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _drawerItem(Icons.school, 'Schools', 1),
         _drawerItem(Icons.map, 'Maps', 2),
         _drawerItem(Icons.video_library, 'Videos', 3),
+        _drawerItem(Icons.workspaces, 'Knowledge Graph', 4),
       ],
     );
   }
@@ -542,6 +555,275 @@ class _AdminDashboardState extends State<AdminDashboard> {
         Navigator.of(context).pop();
       },
     );
+  }
+
+  Widget _buildKnowledgeGraphPage(ColorScheme cs) {
+    final nodes = _asTypedList(_knowledgeGraph['nodes'] ?? []);
+    final edges = _asTypedList(_knowledgeGraph['edges'] ?? []);
+    final stats = _asTypedMap(_knowledgeGraph['stats'] ?? {});
+
+    if (nodes.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.workspaces_outline, size: 64, color: cs.outlineVariant),
+            const SizedBox(height: 16),
+            Text('No data available', style: Theme.of(context).textTheme.titleLarge),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with stats
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Knowledge Graph Overview',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 24,
+                    runSpacing: 12,
+                    children: [
+                      _statItem(
+                        'Total Videos',
+                        '${stats['total_videos'] ?? 0}',
+                        Icons.video_library,
+                        cs.primary,
+                      ),
+                      _statItem(
+                        'Unique Signs',
+                        '${stats['total_signs'] ?? 0}',
+                        Icons.sign_language,
+                        cs.secondary,
+                      ),
+                      _statItem(
+                        'Categories',
+                        '${stats['total_categories'] ?? 0}',
+                        Icons.category,
+                        cs.tertiary,
+                      ),
+                      _statItem(
+                        'Regions',
+                        '${stats['total_regions'] ?? 0}',
+                        Icons.location_on,
+                        const Color(0xFFE53935),
+                      ),
+                      _statItem(
+                        'Schools',
+                        '${stats['total_schools'] ?? 0}',
+                        Icons.school,
+                        const Color(0xFF43A047),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Graph visualization
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Graph Visualization',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Node relationships capturing sign variations, categories, regions, and schools',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 500,
+                    child: KnowledgeGraphVisualization(
+                      nodes: nodes,
+                      edges: edges,
+                      colorScheme: cs,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Legend and relationships info
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Node Types & Relationships',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  _graphLegend(cs),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statItem(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: color, size: 28),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _graphLegend(ColorScheme cs) {
+    final nodeTypes = [
+      ('Signs', 'gloss', 'Represents individual sign glosses/labels'),
+      ('Categories', 'category', 'Sign categories or classifications'),
+      ('Regions', 'region', 'Geographic regions for sign variations'),
+      ('Schools', 'school', 'Data collection schools'),
+    ];
+
+    final relationships = [
+      ('belongs_to', 'Sign belongs to a category'),
+      ('used_in_region', 'Sign usage across regions'),
+      ('located_in', 'School location in region'),
+      ('collected_at', 'Sign collected at school'),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Node Types', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 12),
+        ...nodeTypes.map((type) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _getNodeColor(type.$2, cs),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      type.$1,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    Text(
+                      type.$3,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        )),
+        const SizedBox(height: 20),
+        Text('Relationship Types', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 12),
+        ...relationships.map((rel) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 2,
+                color: _getEdgeColor(rel.$1, cs),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '${rel.$1}: ${rel.$2}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        )),
+      ],
+    );
+  }
+
+  Color _getNodeColor(String nodeType, ColorScheme cs) {
+    switch (nodeType) {
+      case 'gloss':
+        return cs.primary;
+      case 'category':
+        return cs.secondary;
+      case 'region':
+        return const Color(0xFFE53935);
+      case 'school':
+        return const Color(0xFF43A047);
+      default:
+        return cs.outline;
+    }
+  }
+
+  Color _getEdgeColor(String edgeType, ColorScheme cs) {
+    switch (edgeType) {
+      case 'belongs_to':
+        return cs.secondary.withOpacity(0.6);
+      case 'used_in_region':
+        return const Color(0xFFE53935).withOpacity(0.6);
+      case 'located_in':
+        return const Color(0xFF43A047).withOpacity(0.6);
+      case 'collected_at':
+        return cs.primary.withOpacity(0.6);
+      default:
+        return cs.outline.withOpacity(0.3);
+    }
   }
 
   Widget _buildOverviewPage(ColorScheme cs) {

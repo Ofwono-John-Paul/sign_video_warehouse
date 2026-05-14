@@ -1713,6 +1713,19 @@ def download_all_videos_dataset(
     )
 
 
+@app.get('/api/videos/download/all')
+def download_all_videos_dataset_alias(
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Compatibility alias for dataset download using a simpler path.
+
+    Some deployments or routers may match parameterized routes before
+    static routes; this alias provides an unambiguous path.
+    """
+    return download_all_videos_dataset(user=user, db=db)
+
+
 @app.delete('/api/videos')
 def delete_selected_videos(
     payload: dict,
@@ -1739,6 +1752,40 @@ def delete_selected_videos(
         return {
             'deleted_count': deleted_count,
             'message': f'Successfully deleted {deleted_count} video(s)',
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, detail=f'Failed to delete videos: {str(e)}')
+
+
+@app.post('/api/videos/delete')
+def delete_selected_videos_post(
+    payload: dict,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Compatibility endpoint: delete selected videos using POST.
+
+    Some hosting/proxy setups or client stacks disallow DELETE with a
+    request body. Provide a POST alias that accepts the same payload.
+    """
+    video_ids = payload.get('video_ids', [])
+    if not video_ids or not isinstance(video_ids, list):
+        raise HTTPException(400, detail='video_ids must be a non-empty list')
+
+    try:
+        db.query(FactVideoUpload).filter(
+            FactVideoUpload.video_id.in_(video_ids)
+        ).delete(synchronize_session=False)
+
+        deleted_count = db.query(Video).filter(
+            Video.id.in_(video_ids)
+        ).delete(synchronize_session=False)
+
+        db.commit()
+        return {
+            'deleted_count': deleted_count,
+            'message': f'Successfully deleted {deleted_count} video(s) (via POST)',
         }
     except Exception as e:
         db.rollback()
@@ -2810,6 +2857,214 @@ def download_school_dataset(
         media_type='application/zip',
         headers={'Content-Disposition': f'attachment; filename="{archive_name}"'},
     )
+
+
+@app.get('/api/knowledge-graph')
+def get_knowledge_graph(
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Build a knowledge graph of sign video relationships."""
+    videos = db.query(Video).filter(Video.verified_status != 'rejected').all()
+
+    # Build nodes map
+    nodes_map = {}
+    node_counter = 0
+    
+    # Add nodes for sign categories
+    categories = {}
+    for video in videos:
+        if video.sign_category and video.sign_category not in categories:
+            categories[video.sign_category] = node_counter
+            node_counter += 1
+    
+    # Add nodes for glosses/signs
+    glosses = {}
+    for video in videos:
+        if video.gloss_label and video.gloss_label not in glosses:
+            glosses[video.gloss_label] = node_counter
+            node_counter += 1
+    
+    # Add nodes for regions
+    regions = {}
+    for video in videos:
+        if video.region and video.region not in regions:
+            regions[video.region] = node_counter
+            node_counter += 1
+    
+    # Add nodes for schools
+    schools_map = {}
+    for video in videos:
+        if video.school_id and video.school_id not in schools_map:
+            schools_map[video.school_id] = node_counter
+            node_counter += 1
+    
+    # Build nodes list
+    nodes = []
+    
+    # Add category nodes
+    for category, idx in categories.items():
+        nodes.append({
+            'id': idx,
+            'label': category or 'Unknown',
+            'type': 'category',
+            'group': 'Categories',
+            'size': 3,
+        })
+    
+    # Add gloss nodes with frequency
+    gloss_freq = {}
+    for video in videos:
+        if video.gloss_label:
+            gloss_freq[video.gloss_label] = gloss_freq.get(video.gloss_label, 0) + 1
+    
+    for gloss, idx in glosses.items():
+        freq = gloss_freq.get(gloss, 1)
+        nodes.append({
+            'id': idx,
+            'label': gloss or 'Unknown',
+            'type': 'gloss',
+            'group': 'Signs',
+            'size': min(5, 2 + (freq / len(videos)) * 3),
+            'frequency': freq,
+        })
+    
+    # Add region nodes
+    for region, idx in regions.items():
+        nodes.append({
+            'id': idx,
+            'label': region or 'Unknown',
+            'type': 'region',
+            'group': 'Regions',
+            'size': 2.5,
+        })
+    
+    # Add school nodes
+    school_data = db.query(School).all()
+    school_names = {s.id: s.name for s in school_data}
+    for school_id, idx in schools_map.items():
+        school_name = school_names.get(school_id, f'School {school_id}')
+        nodes.append({
+            'id': idx,
+            'label': school_name,
+            'type': 'school',
+            'group': 'Schools',
+            'size': 2.5,
+        })
+    
+    # Build edges for relationships
+    edges_set = set()
+    edge_counter = 0
+    edges = []
+    
+    # Helper to add edge
+    def add_edge(source, target, edge_type, strength=1):
+        if source is None or target is None:
+            return
+        edge_key = (min(source, target), max(source, target), edge_type)
+        if edge_key not in edges_set:
+            edges_set.add(edge_key)
+            edges.append({
+                'id': edge_counter,
+                'source': source,
+                'target': target,
+                'type': edge_type,
+                'strength': strength,
+            })
+            return edge_counter + 1
+        return None
+    
+    # Create edges
+    gloss_category_pairs = {}
+    gloss_region_pairs = {}
+    school_region_pairs = {}
+    gloss_school_pairs = {}
+    
+    for video in videos:
+        # Gloss to Category
+        if video.gloss_label and video.sign_category:
+            key = (video.gloss_label, video.sign_category)
+            gloss_category_pairs[key] = gloss_category_pairs.get(key, 0) + 1
+        
+        # Gloss to Region
+        if video.gloss_label and video.region:
+            key = (video.gloss_label, video.region)
+            gloss_region_pairs[key] = gloss_region_pairs.get(key, 0) + 1
+        
+        # School to Region
+        if video.school_id and video.region:
+            key = (video.school_id, video.region)
+            school_region_pairs[key] = school_region_pairs.get(key, 0) + 1
+        
+        # Gloss to School
+        if video.gloss_label and video.school_id:
+            key = (video.gloss_label, video.school_id)
+            gloss_school_pairs[key] = gloss_school_pairs.get(key, 0) + 1
+    
+    # Add edges to list
+    for (gloss, category), count in gloss_category_pairs.items():
+        source = glosses.get(gloss)
+        target = categories.get(category)
+        if source and target:
+            edges.append({
+                'id': edge_counter,
+                'source': source,
+                'target': target,
+                'type': 'belongs_to',
+                'strength': min(3, count / len(videos) * 10),
+            })
+            edge_counter += 1
+    
+    for (gloss, region), count in gloss_region_pairs.items():
+        source = glosses.get(gloss)
+        target = regions.get(region)
+        if source and target:
+            edges.append({
+                'id': edge_counter,
+                'source': source,
+                'target': target,
+                'type': 'used_in_region',
+                'strength': min(3, count / len(videos) * 10),
+            })
+            edge_counter += 1
+    
+    for (school_id, region), count in school_region_pairs.items():
+        source = schools_map.get(school_id)
+        target = regions.get(region)
+        if source and target:
+            edges.append({
+                'id': edge_counter,
+                'source': source,
+                'target': target,
+                'type': 'located_in',
+                'strength': 2,
+            })
+            edge_counter += 1
+    
+    for (gloss, school_id), count in gloss_school_pairs.items():
+        source = glosses.get(gloss)
+        target = schools_map.get(school_id)
+        if source and target:
+            edges.append({
+                'id': edge_counter,
+                'source': source,
+                'target': target,
+                'type': 'collected_at',
+                'strength': min(2, count / len(videos) * 5),
+            })
+            edge_counter += 1
+    
+    return {
+        'nodes': nodes,
+        'edges': edges,
+        'stats': {
+            'total_videos': len(videos),
+            'total_signs': len(glosses),
+            'total_categories': len(categories),
+            'total_regions': len(regions),
+            'total_schools': len(schools_map),
+        },
+    }
 
 
 #  ENTRY POINT
