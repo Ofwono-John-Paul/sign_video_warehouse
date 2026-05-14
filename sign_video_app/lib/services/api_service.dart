@@ -1,18 +1,33 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Web should use localhost; mobile can use your LAN IP via --dart-define.
+  // Optional override using --dart-define
   static const String _configuredBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: '',
   );
 
   static String get baseUrl {
-    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
-    if (kIsWeb) return 'http://localhost:5000';
+    // Highest priority: manually configured URL
+    if (_configuredBaseUrl.isNotEmpty) {
+      return _configuredBaseUrl;
+    }
+
+    // Production
+    if (kReleaseMode) {
+      return 'https://sign-video-backend-7o9n.onrender.com';
+    }
+
+    // Local development
+    if (kIsWeb) {
+      return 'http://localhost:5000';
+    }
+
+    // Mobile/emulator local backend
     return 'http://10.10.134.62:5000';
   }
 
@@ -216,7 +231,7 @@ class ApiService {
     final out = <String>[
       ...segments.sublist(0, uploadIndex + 1),
       'f_mp4,vc_h264,q_auto',
-      ?version,
+      if (version != null) version,
       ...normalizedPublicParts,
     ];
     out[out.length - 1] = '${out.last}.mp4';
