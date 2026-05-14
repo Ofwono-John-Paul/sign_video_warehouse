@@ -354,6 +354,80 @@ class ApiService {
     return {'statusCode': res.statusCode, 'body': body};
   }
 
+  static Future<Map<String, dynamic>> downloadDataset(int schoolId) async {
+    final headers = await _authHeaders();
+    if (!headers.containsKey('Authorization')) {
+      return {
+        'statusCode': 401,
+        'body': {'detail': 'Please sign in again before downloading.'},
+      };
+    }
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/schools/$schoolId/download-dataset'),
+      headers: headers,
+    );
+
+    if (res.statusCode == 200) {
+      return {
+        'statusCode': res.statusCode,
+        'bodyBytes': res.bodyBytes,
+        'filename': _extractFilenameFromHeaders(res.headers) ?? 'dataset.zip',
+      };
+    }
+
+    try {
+      final body = jsonDecode(res.body);
+      return {'statusCode': res.statusCode, 'body': body};
+    } catch (_) {
+      return {
+        'statusCode': res.statusCode,
+        'error': 'Failed to download dataset',
+      };
+    }
+  }
+
+  static String? _extractFilenameFromHeaders(Map<String, String> headers) {
+    final contentDisposition = headers['content-disposition'] ?? '';
+    final match = RegExp(
+      r'filename="?([^"]+)"?',
+    ).firstMatch(contentDisposition);
+    return match?.group(1);
+  }
+
+  static Future<Map<String, dynamic>> downloadAllVideosDataset() async {
+    final headers = await _authHeaders();
+    if (!headers.containsKey('Authorization')) {
+      return {
+        'statusCode': 401,
+        'body': {'detail': 'Please sign in again before downloading.'},
+      };
+    }
+
+    final res = await http.get(
+      Uri.parse('$baseUrl/api/videos/download-dataset'),
+      headers: headers,
+    );
+
+    if (res.statusCode == 200) {
+      return {
+        'statusCode': res.statusCode,
+        'bodyBytes': res.bodyBytes,
+        'filename':
+            _extractFilenameFromHeaders(res.headers) ?? 'all_videos.zip',
+      };
+    }
+
+    try {
+      final body = jsonDecode(res.body);
+      return {'statusCode': res.statusCode, 'body': body};
+    } catch (_) {
+      return {
+        'statusCode': res.statusCode,
+        'error': 'Failed to download dataset',
+      };
+    }
+  }
+
   // ── Admin Analytics ───────────────────────────────────────────────────────
   static Map<String, String> _analyticsQueryParams({
     String region = '',
