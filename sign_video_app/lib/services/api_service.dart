@@ -428,6 +428,51 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> deleteSelectedVideos(
+    List<int> videoIds,
+  ) async {
+    final headers = await _authHeaders();
+    if (!headers.containsKey('Authorization')) {
+      return {
+        'statusCode': 401,
+        'error': 'Please sign in again before deleting.',
+      };
+    }
+
+    try {
+      final res = await http.delete(
+        Uri.parse('$baseUrl/api/videos'),
+        headers: {...headers, 'Content-Type': 'application/json'},
+        body: jsonEncode({'video_ids': videoIds}),
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        final body = jsonDecode(res.body);
+        return {
+          'statusCode': res.statusCode,
+          'deleted_count': body['deleted_count'] ?? 0,
+          'message': body['message'] ?? 'Videos deleted successfully',
+        };
+      }
+
+      try {
+        final body = jsonDecode(res.body);
+        return {'statusCode': res.statusCode, 'error': body['detail'] ?? 'Unknown error'};
+      } catch (_) {
+        return {
+          'statusCode': res.statusCode,
+          'error': 'Failed to delete videos',
+        };
+      }
+    } catch (e) {
+      return {
+        'statusCode': 500,
+        'error': 'Network error: $e',
+      };
+    }
+  }
+
+
   // ── Admin Analytics ───────────────────────────────────────────────────────
   static Map<String, String> _analyticsQueryParams({
     String region = '',
