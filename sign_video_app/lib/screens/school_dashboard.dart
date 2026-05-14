@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 import '../services/api_service.dart';
 import '../widgets/install_button.dart';
 import 'upload_screen.dart';
@@ -336,52 +335,59 @@ class _SchoolDashboardState extends State<SchoolDashboard>
         child: Text('No videos yet. Upload your first sign!'),
       );
     }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: _videos.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (_, i) {
-          final v = _videos[i] as Map<String, dynamic>;
-          final status = v['verified_status'] ?? 'pending';
-          Color statusColor;
-          switch (status) {
-            case 'approved':
-              statusColor = Colors.green;
-              break;
-            case 'rejected':
-              statusColor = Colors.red;
-              break;
-            default:
-              statusColor = Colors.orange;
-          }
-          return ListTile(
-            leading: CircleAvatar(
-              backgroundColor: cs.primaryContainer,
-              child: Icon(Icons.sign_language, color: cs.primary),
+    return Column(
+      children: [
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: _videos.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final v = _videos[i] as Map<String, dynamic>;
+                final status = v['verified_status'] ?? 'pending';
+                Color statusColor;
+                switch (status) {
+                  case 'approved':
+                    statusColor = Colors.green;
+                    break;
+                  case 'rejected':
+                    statusColor = Colors.red;
+                    break;
+                  default:
+                    statusColor = Colors.orange;
+                }
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: cs.primaryContainer,
+                    child: Icon(Icons.sign_language, color: cs.primary),
+                  ),
+                  title: Text(v['gloss_label'] ?? 'Untitled'),
+                  subtitle: Text(
+                    '${v['sign_category'] ?? 'General'} · ${v['upload_date'] ?? ''}',
+                  ),
+                  trailing: Chip(
+                    label: Text(
+                      status,
+                      style: const TextStyle(fontSize: 11, color: Colors.white),
+                    ),
+                    backgroundColor: statusColor,
+                    padding: EdgeInsets.zero,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          VideoDetailScreen(video: v, canModerate: false),
+                    ),
+                  ),
+                );
+              },
             ),
-            title: Text(v['gloss_label'] ?? 'Untitled'),
-            subtitle: Text(
-              '${v['sign_category'] ?? 'General'} · ${v['upload_date'] ?? ''}',
-            ),
-            trailing: Chip(
-              label: Text(
-                status,
-                style: const TextStyle(fontSize: 11, color: Colors.white),
-              ),
-              backgroundColor: statusColor,
-              padding: EdgeInsets.zero,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => VideoDetailScreen(video: v, canModerate: false),
-              ),
-            ),
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -429,180 +435,6 @@ class _SchoolDashboardState extends State<SchoolDashboard>
           ),
         );
       },
-    );
-  }
-
-  Widget _locationTab(ColorScheme cs) {
-    final school = (_analytics['school'] as Map?)?.cast<String, dynamic>();
-    final lat = (school?['latitude'] as num?)?.toDouble();
-    final lng = (school?['longitude'] as num?)?.toDouble();
-    final address = school?['address']?.toString();
-
-    if (lat == null || lng == null || lat == 0 || lng == 0) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'No GPS coordinates saved for this school yet.\nAdd latitude and longitude during registration to show it on the map.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
-
-    final healthPins = _health
-        .whereType<Map>()
-        .map(
-          (entry) => Map<String, dynamic>.from(entry.cast<String, dynamic>()),
-        )
-        .where((facility) {
-          final facilityLat = (facility['latitude'] as num?)?.toDouble();
-          final facilityLng = (facility['longitude'] as num?)?.toDouble();
-          return facilityLat != null &&
-              facilityLng != null &&
-              facilityLat != 0 &&
-              facilityLng != 0;
-        })
-        .toList();
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _schoolName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                if ((address ?? '').isNotEmpty) ...[
-                  Text(address!),
-                  const SizedBox(height: 4),
-                ],
-                Text(
-                  'Latitude: ${lat.toStringAsFixed(6)} · Longitude: ${lng.toStringAsFixed(6)}',
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 380,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: LatLng(lat, lng),
-                initialZoom: 13,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.usl.sign_video_app',
-                ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: LatLng(lat, lng),
-                      width: 42,
-                      height: 42,
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: cs.primary,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                            ),
-                            child: const Icon(
-                              Icons.school,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black87,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Text(
-                              'School',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ...healthPins.map((health) {
-                      final facilityLat = (health['latitude'] as num?)
-                          ?.toDouble();
-                      final facilityLng = (health['longitude'] as num?)
-                          ?.toDouble();
-                      if (facilityLat == null || facilityLng == null) {
-                        return null;
-                      }
-                      return Marker(
-                        point: LatLng(facilityLat, facilityLng),
-                        width: 30,
-                        height: 30,
-                        child: GestureDetector(
-                          onTap: () {
-                            showDialog<void>(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                title: Text(
-                                  health['name'] ?? 'Health Facility',
-                                ),
-                                content: Text(
-                                  '${health['location'] ?? ''}\n${health['distance_km']?.toString() ?? ''} km away',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Close'),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                          child: const Icon(
-                            Icons.local_hospital,
-                            color: Colors.red,
-                            size: 28,
-                          ),
-                        ),
-                      );
-                    }).whereType<Marker>(),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Nearby health facilities appear on the map when this school has saved coordinates.',
-          style: TextStyle(color: cs.onSurfaceVariant),
-        ),
-      ],
     );
   }
 }
