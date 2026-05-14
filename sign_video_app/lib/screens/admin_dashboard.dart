@@ -1,8 +1,11 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+// ignore: avoid_web_libraries_in_release
+import 'dart:html' if (dart.library.html) 'dart:html' as html;
 
 import '../services/api_service.dart';
 import '../services/video_download_service.dart';
@@ -922,8 +925,78 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _downloadAllVideosDataset,
+              icon: const Icon(Icons.download),
+              label: const Text('DOWNLOAD DATASET'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: cs.primary,
+                foregroundColor: cs.onPrimary,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  Future<void> _downloadAllVideosDataset() async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Preparing full dataset...')),
+      );
+
+      final result = await ApiService.downloadAllVideosDataset();
+      if (result['statusCode'] == 200 && result['bodyBytes'] != null) {
+        _triggerDownload(
+          result['bodyBytes'],
+          result['filename'] ?? 'all_videos.zip',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Dataset downloaded successfully!')),
+          );
+        }
+        return;
+      }
+
+      final error =
+          result['body']?['detail'] ?? result['error'] ?? 'Unknown error';
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $error')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+      }
+      debugPrint('Dataset download error: $e');
+    }
+  }
+
+  void _triggerDownload(List<int> bytes, String filename) {
+    if (!kIsWeb) {
+      debugPrint('Dataset download is only supported on web right now.');
+      return;
+    }
+
+    final blob = html.Blob([bytes]);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.document.createElement('a') as html.AnchorElement;
+    anchor.href = url;
+    anchor.download = filename;
+    html.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
+    html.Url.revokeObjectUrl(url);
   }
 
   Widget _buildFilterStrip(ColorScheme cs) {
