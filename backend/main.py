@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import uuid
 import threading
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -28,7 +30,7 @@ from fastapi import (
     Form, Query, Request, status
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from sqlalchemy import (
@@ -648,16 +650,46 @@ def _candidate_cloudinary_public_ids_from_path(path_value: str) -> list[str]:
     if not candidate:
         return []
 
-    stem = Path(candidate).stem
-    if not stem:
-        return []
+    candidates: list[str] = []
 
-    candidates = [
-        stem,
-        f'converted/{stem}',
-        f'uploads/converted/{stem}',
-        f'videos/{stem}',
-    ]
+    segments = [segment for segment in candidate.split('/') if segment]
+    if segments:
+        upload_index = next(
+            (i for i, segment in enumerate(segments) if segment == 'upload'),
+            -1,
+        )
+        if upload_index >= 0 and upload_index + 1 < len(segments):
+            after_upload = segments[upload_index + 1 :]
+            version_index = next(
+                (
+                    i
+                    for i, segment in enumerate(after_upload)
+                    if re.fullmatch(r'v\d+', segment)
+                ),
+                -1,
+            )
+            public_parts = (
+                after_upload[version_index + 1 :]
+                if version_index >= 0
+                else after_upload
+            )
+            if public_parts:
+                public_id = '/'.join(public_parts)
+                public_id = re.sub(r'\.[^.]+$', '', public_id)
+                if public_id:
+                    candidates.extend([
+                        public_id,
+                        public_id.replace('video/', '', 1) if public_id.startswith('video/') else public_id,
+                    ])
+
+    stem = Path(candidate).stem
+    if stem:
+        candidates.extend([
+            stem,
+            f'converted/{stem}',
+            f'uploads/converted/{stem}',
+            f'videos/{stem}',
+        ])
 
     # Keep order while removing duplicates.
     seen = set()
@@ -1663,6 +1695,24 @@ def list_videos(
             'total': total, 'page': page, 'per_page': per_page}
 
 
+@app.get('/api/videos/download-dataset')
+def download_all_videos_dataset(
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    videos = db.query(Video).order_by(Video.upload_timestamp).all()
+    zip_bytes, archive_name = _build_dataset_archive(
+        videos,
+        db,
+        scope_label='all_videos',
+    )
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{archive_name}"'},
+    )
+
+
 @app.get('/api/videos/{video_id}')
 def get_video(video_id: int,
               user: User = Depends(get_current_user),
@@ -2574,6 +2624,160 @@ def link_video_to_cloudinary(
         'video_id': video.id,
         'playback_url': resolved,
     }
+
+
+def _build_dataset_archive(
+    videos: list[Video],
+    db: Session,
+    *,
+    scope_label: str,
+    school: School | None = None,
+) -> tuple[bytes, str]:
+    if not videos:
+        raise HTTPException(400, detail='No videos to download')
+
+    zip_buffer = BytesIO()
+    metadata: dict[str, object] = {
+        'scope': scope_label,
+        'export_date': datetime.utcnow().isoformat(),
+        'total_videos': len(videos),
+        'videos': [],
+    }
+    if school is not None:
+        metadata.update({
+            'school_name': school.name,
+            'school_id': school.id,
+            'region': school.region,
+            'district': school.district,
+        })
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr('videos/', b'')
+        for idx, video in enumerate(videos, 1):
+            try:
+                source_value = _video_conversion_source(video)
+                if not source_value:
+                    source_value = _public_video_url(video, db)
+
+                video_data: bytes | None = None
+                ext = '.mp4'
+                source_name = ''
+
+                if source_value.startswith('http://') or source_value.startswith('https://'):
+                    req = UrlRequest(source_value, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urlopen(req, timeout=30) as response:
+                        video_data = response.read()
+                    ext = os.path.splitext(urlsplit(source_value).path)[1] or '.mp4'
+                    source_name = source_value
+                else:
+                    local_candidate = Path(source_value)
+                    if not local_candidate.exists() and source_value.startswith('/api/videos/'):
+                        local_candidate = Path(video.file_path or '')
+                        if not local_candidate.exists():
+                            local_candidate = Path(video.converted_video_url or '')
+                    if local_candidate.exists() and local_candidate.is_file():
+                        video_data = local_candidate.read_bytes()
+                        ext = local_candidate.suffix or '.mp4'
+                        source_name = local_candidate.name
+
+                if not video_data:
+                    print(f'No downloadable source for video {video.id}')
+                    metadata['videos'].append({
+                        'video_id': video.id,
+                        'filename': '',
+                        'gloss_label': video.gloss_label,
+                        'description': video.gloss_label,
+                        'category': video.sign_category,
+                        'language': video.language_variant,
+                        'sentence_type': video.sentence_type,
+                        'region': video.region,
+                        'district': video.district,
+                        'duration': video.duration,
+                        'file_size_kb': video.file_size_kb,
+                        'upload_date': str(video.upload_timestamp)[:10] if video.upload_timestamp else '',
+                        'verified_status': video.verified_status,
+                        'source': source_name,
+                    })
+                    continue
+
+                safe_name = re.sub(
+                    r'[^a-zA-Z0-9_-]',
+                    '_',
+                    video.gloss_label or f'video_{video.id}',
+                )
+                filename = f'{idx:03d}_{safe_name}{ext}'
+                zip_file.writestr(f'videos/{filename}', video_data)
+                metadata['videos'].append({
+                    'video_id': video.id,
+                    'filename': filename,
+                    'gloss_label': video.gloss_label,
+                    'description': video.gloss_label,
+                    'category': video.sign_category,
+                    'language': video.language_variant,
+                    'sentence_type': video.sentence_type,
+                    'region': video.region,
+                    'district': video.district,
+                    'duration': video.duration,
+                    'file_size_kb': video.file_size_kb,
+                    'upload_date': str(video.upload_timestamp)[:10] if video.upload_timestamp else '',
+                    'verified_status': video.verified_status,
+                    'source': source_name,
+                })
+            except Exception as exc:
+                print(f'Error processing video {video.id}: {exc}')
+
+        metadata_json = json.dumps(metadata, indent=2)
+        zip_file.writestr('metadata.json', metadata_json)
+
+        csv_lines = [
+            'video_id,filename,gloss_label,category,language,sentence_type,region,district,duration_sec,file_size_kb,upload_date,status,source',
+        ]
+        for v_meta in metadata['videos']:
+            csv_lines.append(
+                f"{v_meta['video_id']},{v_meta['filename']},{v_meta['gloss_label']},"
+                f"{v_meta['category']},{v_meta['language']},{v_meta['sentence_type']},"
+                f"{v_meta['region']},{v_meta['district']},{v_meta['duration']},"
+                f"{v_meta['file_size_kb']},{v_meta['upload_date']},{v_meta['verified_status']},"
+                f"{v_meta.get('source', '')}"
+            )
+        zip_file.writestr('metadata.csv', '\n'.join(csv_lines))
+
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    safe_scope = re.sub(r'[^a-zA-Z0-9_-]', '_', scope_label or 'dataset')
+    archive_name = f'{safe_scope}_{timestamp}.zip'
+    return zip_buffer.getvalue(), archive_name
+
+
+@app.get('/api/schools/{school_id}/download-dataset')
+def download_school_dataset(
+    school_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if user.role != 'ADMIN' and user.school_id != school_id:
+        raise HTTPException(403, detail='Forbidden')
+
+    school = db.get(School, school_id)
+    if not school:
+        raise HTTPException(404, detail='School not found')
+
+    videos = (
+        db.query(Video)
+        .filter_by(school_id=school_id)
+        .order_by(Video.upload_timestamp)
+        .all()
+    )
+    zip_bytes, archive_name = _build_dataset_archive(
+        videos,
+        db,
+        scope_label=school.name or f'school_{school_id}',
+        school=school,
+    )
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{archive_name}"'},
+    )
 
 
 #  ENTRY POINT
