@@ -569,7 +569,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
           children: [
             Icon(Icons.workspaces_outline, size: 64, color: cs.outlineVariant),
             const SizedBox(height: 16),
-            Text('No data available', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'No data available',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
           ],
         ),
       );
@@ -647,9 +650,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   const SizedBox(height: 12),
                   Text(
                     'Node relationships capturing sign variations, categories, regions, and schools',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: cs.onSurfaceVariant,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -702,15 +705,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
         Text(
           value,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -735,63 +735,70 @@ class _AdminDashboardState extends State<AdminDashboard> {
       children: [
         Text('Node Types', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 12),
-        ...nodeTypes.map((type) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _getNodeColor(type.$2, cs),
+        ...nodeTypes.map(
+          (type) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _getNodeColor(type.$2, cs),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      type.$1,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    Text(
-                      type.$3,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: cs.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        type.$1,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        type.$3,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        )),
+        ),
         const SizedBox(height: 20),
-        Text('Relationship Types', style: Theme.of(context).textTheme.titleSmall),
+        Text(
+          'Relationship Types',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
         const SizedBox(height: 12),
-        ...relationships.map((rel) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 2,
-                color: _getEdgeColor(rel.$1, cs),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '${rel.$1}: ${rel.$2}',
-                  style: Theme.of(context).textTheme.bodySmall,
+        ...relationships.map(
+          (rel) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 2,
+                  color: _getEdgeColor(rel.$1, cs),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${rel.$1}: ${rel.$2}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
           ),
-        )),
+        ),
       ],
     );
   }

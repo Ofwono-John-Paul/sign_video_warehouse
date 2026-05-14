@@ -41,7 +41,8 @@ class GraphNode {
   }
 }
 
-class _KnowledgeGraphVisualizationState extends State<KnowledgeGraphVisualization>
+class _KnowledgeGraphVisualizationState
+    extends State<KnowledgeGraphVisualization>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late List<GraphNode> _graphNodes;
@@ -61,12 +62,14 @@ class _KnowledgeGraphVisualizationState extends State<KnowledgeGraphVisualizatio
 
   void _initializeGraph() {
     _graphNodes = widget.nodes
-        .map<GraphNode>((node) => GraphNode(
-              id: node['id'] ?? 0,
-              label: node['label'] ?? 'Unknown',
-              type: node['type'] ?? 'unknown',
-              size: (node['size'] ?? 2).toDouble(),
-            ))
+        .map<GraphNode>(
+          (node) => GraphNode(
+            id: node['id'] ?? 0,
+            label: node['label'] ?? 'Unknown',
+            type: node['type'] ?? 'unknown',
+            size: (node['size'] ?? 2).toDouble(),
+          ),
+        )
         .toList();
     _edges = widget.edges;
   }

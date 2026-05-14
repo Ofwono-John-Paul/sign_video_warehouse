@@ -422,7 +422,8 @@ class ApiService {
       return {
         'statusCode': res.statusCode,
         'bodyBytes': res.bodyBytes,
-        'filename': _extractFilenameFromHeaders(res.headers) ?? 'all_videos.zip',
+        'filename':
+            _extractFilenameFromHeaders(res.headers) ?? 'all_videos.zip',
       };
     }
 
@@ -465,7 +466,9 @@ class ApiService {
       }
 
       // If DELETE is not allowed or failed due to proxy, try POST fallback
-      if (res.statusCode == 405 || res.statusCode == 404 || (res.statusCode >= 400 && res.statusCode < 500)) {
+      if (res.statusCode == 405 ||
+          res.statusCode == 404 ||
+          (res.statusCode >= 400 && res.statusCode < 500)) {
         final postRes = await http.post(
           Uri.parse('$baseUrl/api/videos/delete'),
           headers: {...headers, 'Content-Type': 'application/json'},
@@ -477,15 +480,22 @@ class ApiService {
           return {
             'statusCode': postRes.statusCode,
             'deleted_count': body['deleted_count'] ?? 0,
-            'message': body['message'] ?? 'Videos deleted successfully (via POST)',
+            'message':
+                body['message'] ?? 'Videos deleted successfully (via POST)',
           };
         }
 
         try {
           final body = jsonDecode(postRes.body);
-          return {'statusCode': postRes.statusCode, 'error': body['detail'] ?? 'Unknown error'};
+          return {
+            'statusCode': postRes.statusCode,
+            'error': body['detail'] ?? 'Unknown error',
+          };
         } catch (_) {
-          return {'statusCode': postRes.statusCode, 'error': 'Failed to delete videos'};
+          return {
+            'statusCode': postRes.statusCode,
+            'error': 'Failed to delete videos',
+          };
         }
       }
 
@@ -742,15 +752,9 @@ class ApiService {
     if (res.statusCode == 200) {
       try {
         final body = jsonDecode(res.body);
-        return {
-          'statusCode': 200,
-          'data': body,
-        };
+        return {'statusCode': 200, 'data': body};
       } catch (e) {
-        return {
-          'statusCode': 200,
-          'error': 'Failed to parse graph data: $e',
-        };
+        return {'statusCode': 200, 'error': 'Failed to parse graph data: $e'};
       }
     }
 
