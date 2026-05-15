@@ -10,7 +10,6 @@ import 'dart:html' if (dart.library.html) 'dart:html' as html;
 import '../services/api_service.dart';
 import '../services/video_download_service.dart';
 import '../widgets/install_button.dart';
-import '../widgets/knowledge_graph_visualization.dart';
 import 'login_screen.dart';
 import 'video_detail_screen.dart';
 
@@ -410,8 +409,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return 'Maps';
       case 3:
         return 'Videos';
-      case 4:
-        return 'Knowledge Graph';
+      // case 4:
+      //   return 'Knowledge Graph';
       default:
         return 'Overview Analytics';
     }
@@ -515,11 +514,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
           selectedIcon: Icon(Icons.video_library),
           label: Text('Videos'),
         ),
-        NavigationRailDestination(
-          icon: Icon(Icons.workspaces_outlined),
-          selectedIcon: Icon(Icons.workspaces),
-          label: Text('Knowledge Graph'),
-        ),
+        // NavigationRailDestination(
+        //   icon: Icon(Icons.workspaces_outlined),
+        //   selectedIcon: Icon(Icons.workspaces),
+        //   label: Text('Knowledge Graph'),
+        // ),
       ],
     );
   }
@@ -540,7 +539,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
         _drawerItem(Icons.school, 'Schools', 1),
         _drawerItem(Icons.map, 'Maps', 2),
         _drawerItem(Icons.video_library, 'Videos', 3),
-        _drawerItem(Icons.workspaces, 'Knowledge Graph', 4),
+        // _drawerItem(Icons.workspaces, 'Knowledge Graph', 4),
       ],
     );
   }
@@ -561,6 +560,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final nodes = _asTypedList(_knowledgeGraph['nodes'] ?? []);
     final edges = _asTypedList(_knowledgeGraph['edges'] ?? []);
     final stats = _asTypedMap(_knowledgeGraph['stats'] ?? {});
+    final semanticRows = _semanticConnectionRows();
+    final semanticEdgeCount = edges.where((edge) {
+      return edge['type']?.toString() == 'used_in_region';
+    }).length;
 
     if (nodes.isEmpty) {
       return Center(
@@ -593,6 +596,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   Text(
                     'Knowledge Graph Overview',
                     style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Table detailing the number of sign videos, and Semantic Edges.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
                   ),
                   const SizedBox(height: 16),
                   Wrap(
@@ -629,6 +639,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         Icons.school,
                         const Color(0xFF43A047),
                       ),
+                      _statItem(
+                        'Semantic Edges',
+                        '$semanticEdgeCount',
+                        Icons.alt_route,
+                        const Color(0xFF8E24AA),
+                      ),
                     ],
                   ),
                 ],
@@ -636,7 +652,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
           const SizedBox(height: 24),
-          // Graph visualization
+          // Knowledge graph visualization intentionally hidden; the table below
+          // is clearer for cross-region semantic review.
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -644,25 +661,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Graph Visualization',
+                    'Semantic Connections Table',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Node relationships capturing sign variations, categories, regions, and schools',
+                    'Different regions sending the same sign videos with the same meaning are grouped here.',
                     style: Theme.of(
                       context,
                     ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                   ),
                   const SizedBox(height: 16),
-                  SizedBox(
-                    height: 500,
-                    child: KnowledgeGraphVisualization(
-                      nodes: nodes,
-                      edges: edges,
-                      colorScheme: cs,
-                    ),
-                  ),
+                  _buildSemanticConnectionsTable(cs, semanticRows),
                 ],
               ),
             ),
@@ -687,6 +697,152 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
         ],
       ),
+    );
+  }
+
+  List<Map<String, dynamic>> _semanticConnectionRows() {
+    final grouped = <String, Map<String, dynamic>>{};
+
+    for (final video in _videosTyped) {
+      final gloss = _safeText(video['gloss_label'], fallback: '').trim();
+      if (gloss.isEmpty || gloss == 'Unknown') continue;
+
+      final region = _safeText(video['region'], fallback: 'Unknown');
+      final school = _safeText(video['school_name'], fallback: 'Individual');
+      final entry = grouped.putIfAbsent(gloss, () => {
+        'sign': gloss,
+        'videos': 0,
+        'regions': <String>{},
+        'schools': <String>{},
+      });
+
+      entry['videos'] = _toInt(entry['videos']) + 1;
+      (entry['regions'] as Set<String>).add(region);
+      (entry['schools'] as Set<String>).add(school);
+    }
+
+    final rows = grouped.values
+        .where((entry) => (entry['regions'] as Set<String>).length > 1)
+        .map((entry) {
+          final regions = (entry['regions'] as Set<String>).toList()..sort();
+          final schools = (entry['schools'] as Set<String>).toList()..sort();
+          return {
+            'sign': entry['sign'],
+            'videos': entry['videos'],
+            'regions': regions,
+            'schools': schools,
+            'semantic_edges': regions.length,
+          };
+        })
+        .toList();
+
+    rows.sort((a, b) {
+      final regionDelta = _toInt(b['regions']?.length) - _toInt(a['regions']?.length);
+      if (regionDelta != 0) return regionDelta;
+      return _toInt(b['videos']) - _toInt(a['videos']);
+    });
+
+    return rows;
+  }
+
+  Widget _buildSemanticConnectionsTable(
+    ColorScheme cs,
+    List<Map<String, dynamic>> rows,
+  ) {
+    if (rows.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          'No cross-region semantic matches found yet. Upload the same sign meaning from multiple regions to populate this table.',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(
+          cs.primaryContainer.withOpacity(0.45),
+        ),
+        columns: const [
+          DataColumn(label: Text('Sign / Meaning')),
+          DataColumn(label: Text('Regions')),
+          DataColumn(label: Text('Schools')),
+          DataColumn(label: Text('Sign Videos')),
+          DataColumn(label: Text('Semantic Edges')),
+          DataColumn(label: Text('Visual')),
+        ],
+        rows: rows.map((row) {
+          final regions = (row['regions'] as List<dynamic>).join(', ');
+          final regionList = (row['regions'] as List<dynamic>)
+              .map((value) => value.toString())
+              .toList();
+          final schools = (row['schools'] as List<dynamic>).join(', ');
+          return DataRow(
+            cells: [
+              DataCell(Text(_safeText(row['sign']))),
+              DataCell(SizedBox(width: 220, child: Text(regions))),
+              DataCell(SizedBox(width: 220, child: Text(schools))),
+              DataCell(Text('${row['videos'] ?? 0}')),
+              DataCell(Text('${row['semantic_edges'] ?? 0}')),
+              DataCell(
+                SizedBox(
+                  width: 180,
+                  child: _semanticRegionVisual(regionList, cs),
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _semanticRegionVisual(List<String> regions, ColorScheme cs) {
+    if (regions.isEmpty) {
+      return Text(
+        'No regions',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: cs.onSurfaceVariant,
+        ),
+      );
+    }
+
+    final colors = [
+      cs.primary,
+      cs.secondary,
+      const Color(0xFFE53935),
+      const Color(0xFF43A047),
+      const Color(0xFF8E24AA),
+      const Color(0xFF00838F),
+    ];
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: regions.asMap().entries.map((entry) {
+        final color = colors[entry.key % colors.length];
+        return Chip(
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          backgroundColor: color.withOpacity(0.12),
+          side: BorderSide(color: color.withOpacity(0.35)),
+          label: Text(
+            entry.value,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
