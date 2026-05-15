@@ -600,9 +600,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   const SizedBox(height: 8),
                   Text(
                     'Table detailing the number of sign videos, and Semantic Edges.',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Wrap(
@@ -709,12 +709,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
       final region = _safeText(video['region'], fallback: 'Unknown');
       final school = _safeText(video['school_name'], fallback: 'Individual');
-      final entry = grouped.putIfAbsent(gloss, () => {
-        'sign': gloss,
-        'videos': 0,
-        'regions': <String>{},
-        'schools': <String>{},
-      });
+      final entry = grouped.putIfAbsent(
+        gloss,
+        () => {
+          'sign': gloss,
+          'videos': 0,
+          'regions': <String>{},
+          'schools': <String>{},
+        },
+      );
 
       entry['videos'] = _toInt(entry['videos']) + 1;
       (entry['regions'] as Set<String>).add(region);
@@ -737,7 +740,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         .toList();
 
     rows.sort((a, b) {
-      final regionDelta = _toInt(b['regions']?.length) - _toInt(a['regions']?.length);
+      final regionDelta =
+          _toInt(b['regions']?.length) - _toInt(a['regions']?.length);
       if (regionDelta != 0) return regionDelta;
       return _toInt(b['videos']) - _toInt(a['videos']);
     });
@@ -808,9 +812,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (regions.isEmpty) {
       return Text(
         'No regions',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: cs.onSurfaceVariant,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
       );
     }
 
